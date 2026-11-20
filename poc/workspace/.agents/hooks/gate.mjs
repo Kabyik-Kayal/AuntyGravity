@@ -1,5 +1,5 @@
 // PreToolUse gate (fail-closed): only read-only tools and `consult` run until Gemini has planned.
-import { appendLog, isConsultCall, out, readJson, readStdinJson, sessionPath } from '../../../shared/state.mjs';
+import { adapterPath, appendLog, isConsultCall, out, readJson, readStdinJson, sessionPath } from '../../../shared/state.mjs';
 
 // Names are provisional: confirm against real transcripts (see state/tool-names.log). Override with AUNTY_READONLY_RE.
 const READONLY = new RegExp(
@@ -24,8 +24,23 @@ const PROTECTED = /(\.agents[\\/]|poc[\\/]shared[\\/]|\.auntygravity|mcp_config\
 const touchesProtected = (v) =>
   typeof v === 'string' ? PROTECTED.test(v) : v && typeof v === 'object' ? Object.values(v).some(touchesProtected) : false;
 
-if (isConsultCall(payload.toolCall)) {
-  decision = 'allow';
+// The bridge pairing token must never reach the executor, even through read-only tools.
+const touchesSecret = (v) =>
+  typeof v === 'string' ? /ext-token/i.test(v) : v && typeof v === 'object' ? Object.values(v).some(touchesSecret) : false;
+
+if (touchesSecret(payload.toolCall.args)) {
+  decision = 'deny';
+  reason = 'Blocked by AuntyGravity: the bridge pairing token is secret.';
+} else if (isConsultCall(payload.toolCall)) {
+  // The user opted out of per-call approval for the chrome adapter (Turbo workflow). Note the trade-off: the consult
+  // task and context go to Gemini webchat without a prompt. Fail-closed: an unknown or missing adapter state still asks.
+  const adapter = readJson(adapterPath())?.adapter;
+  if (adapter === 'stub' || adapter === 'fake' || adapter === 'chrome') {
+    decision = 'allow';
+  } else {
+    decision = 'force_ask';
+    reason = 'AuntyGravity will send this consult (task and context) to the Gemini webchat. Google may retain or human-review it. Approve only if it contains nothing confidential.';
+  }
 } else if (READONLY.test(name)) {
   decision = 'allow';
 } else if (touchesProtected(payload.toolCall.args)) {

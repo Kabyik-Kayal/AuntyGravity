@@ -99,3 +99,14 @@ Net: the hook-plus-permissions route is the best CLI path, and the SDK is the fa
 2. Hook PoC with a **stub** `consult`: prove deny, inject and stop work in the CLI before building the browser part.
 3. Wire the real MCP `consult` to the browser adapter.
 4. Pilot on a throwaway repo. Send no real code until the data-review gate passes.
+
+## Status after live runs (2026-11-20)
+
+Verified against real systems:
+
+- **Hooks in Antigravity (app):** `PreToolUse` deny is honored under the Turbo preset. MCP tools arrive as `call_mcp_tool` with `ServerName`, `ToolName`, `Arguments`. Real tool names are `read_file`, `write_file`, `edit_file`, `run_command`.
+- **Executor behavior:** after a consult, Flash followed the plan (it wrote `poc-output.txt` per the plan, not the literal request). It also edited the hook scripts mid-run, so the gate now protects `.agents/`, `poc/shared/`, MCP config and the bridge token.
+- **Webchat access:** Chrome 158 refuses remote debugging on the default profile, so the Playwright/CDP route was dropped. A Manifest V3 extension (`poc/extension`) in the user's own signed-in profile talks to the consult server over a token-protected loopback bridge. WebMCP was ruled out: it exposes page-registered tools to in-browser agents and gives an external process no way to call them.
+- **Live consults:** Neon and Hydrogen both returned structured plans through the extension; the response was parsed, validated and rendered with the binding header. Model switching Neon to Hydrogen was verified.
+
+Not yet verified: a full Antigravity run with the `chrome` adapter, whether `force_ask` prompts under Turbo, sub-agent hook coverage, and Antigravity's MCP tool-call timeout versus answer time (a Neon answer can take minutes; the bridge cap is 270 s).

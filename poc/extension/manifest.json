@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "AuntyGravity Bridge",
+  "version": "0.1.0",
+  "description": "Lets the local AuntyGravity consult server ask Gemini in a visible tab of your own signed-in Chrome. Loopback only, token protected.",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["https://gemini.google.com/*", "http://127.0.0.1:9334/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["https://gemini.google.com/*"], "js": ["content.js"], "run_at": "document_idle" }
+  ],
+  "options_page": "options.html"
+}

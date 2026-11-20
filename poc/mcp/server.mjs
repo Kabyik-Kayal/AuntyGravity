@@ -2,7 +2,20 @@
 // It does NOT call Gemini. It returns a deterministic plan so the hook enforcement can be proven first.
 // Protocol: newline-delimited JSON-RPC 2.0 on stdin/stdout. Only stderr may be used for logs.
 import readline from 'node:readline';
-import { lastConsultPath, writeJson } from '../shared/state.mjs';
+import { adapterPath, lastConsultPath, writeJson } from '../shared/state.mjs';
+import { ConsultError } from './adapter/errors.mjs';
+import { buildPrompt, parseResponse, renderResult } from './adapter/prompt.mjs';
+
+// AUNTY_ADAPTER: "stub" (fixed plan, default), "chrome" (your signed-in Chrome via the Bridge extension), "fake" (tests).
+const ADAPTER = process.env.AUNTY_ADAPTER || 'stub';
+// Tell the hooks which adapter is live: any real adapter makes the gate demand per-call user approval.
+writeJson(adapterPath(), { adapter: ADAPTER, ts: Date.now() });
+
+async function loadAsk() {
+  if (ADAPTER === 'chrome') return (await import('./adapter/chrome-bridge.mjs')).ask;
+  if (ADAPTER === 'fake') return (await import('./adapter/fake-adapter.mjs')).ask;
+  return null;
+}
 
 const INTENTS = ['plan', 'decision', 'review'];
 const MODELS = ['neon', 'hydrogen'];
@@ -36,7 +49,19 @@ const TOOL = {
 
 const send = (msg) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...msg })}\n`);
 
-function consult(args = {}) {
+const isStrArr = (v) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
+const isCtx = (v) => v === undefined || (Array.isArray(v) && v.every((c) => typeof c?.label === 'string' && typeof c?.text === 'string'));
+
+// Failure: record it for the hooks (which halt the run) and tell the executor not to improvise.
+function fail(code, reason) {
+  writeJson(lastConsultPath(), { status: 'error', code, reason, ts: Date.now() });
+  return {
+    isError: true,
+    content: [{ type: 'text', text: `${code}: ${reason}\nDo not proceed, retry blindly, or substitute another model. Tell the user what is needed.` }],
+  };
+}
+
+async function consult(args = {}) {
   const intent = args.intent ?? 'plan';
   const model = args.model ?? 'neon';
   const task = args.task;
@@ -45,11 +70,33 @@ function consult(args = {}) {
     : task.length > MAX_TASK ? `task exceeds ${MAX_TASK} characters`
     : !INTENTS.includes(intent) ? `intent must be one of ${INTENTS.join(', ')}`
     : !MODELS.includes(model) ? `model must be one of ${MODELS.join(', ')}`
+    : !isCtx(args.context) ? 'context must be a list of {label, text} strings'
+    : !isStrArr(args.constraints) || !isStrArr(args.acceptance_criteria) ? 'constraints and acceptance_criteria must be lists of strings'
     : null;
 
-  if (problem) {
-    writeJson(lastConsultPath(), { status: 'error', code: 'INVALID_INPUT', reason: problem, ts: Date.now() });
-    return { isError: true, content: [{ type: 'text', text: `INVALID_INPUT: ${problem}. Do not proceed; fix the call and consult again.` }] };
+  if (problem) return fail('INVALID_INPUT', problem);
+
+  const ask = await loadAsk();
+  if (ask) {
+    try {
+      const prompt = buildPrompt({ intent, task, context: args.context, constraints: args.constraints, acceptance_criteria: args.acceptance_criteria });
+      const { text: raw, modelUsed } = await ask({ prompt, model });
+      const parsed = parseResponse(raw);
+      const text = renderResult(parsed, { modelUsed, intent });
+      writeJson(lastConsultPath(), {
+        status: 'complete',
+        id: `c_${Date.now().toString(36)}`,
+        ts: Date.now(),
+        model_used: modelUsed,
+        intent,
+        plan: parsed.plan,
+        text,
+      });
+      return { content: [{ type: 'text', text }] };
+    } catch (e) {
+      const code = e instanceof ConsultError ? e.code : 'BROWSER_UNAVAILABLE';
+      return fail(code, e instanceof ConsultError ? e.message : `Unexpected adapter failure: ${String(e.message).split('\n')[0]}`);
+    }
   }
 
   const plan = [
@@ -101,7 +148,10 @@ function handle(msg) {
       if (params?.name !== 'consult') {
         return send({ id, error: { code: -32602, message: `Unknown tool: ${params?.name}` } });
       }
-      return send({ id, result: consult(params.arguments) });
+      return consult(params.arguments).then(
+        (result) => send({ id, result }),
+        (e) => send({ id, error: { code: -32603, message: String(e.message) } }),
+      );
     default:
       return send({ id, error: { code: -32601, message: `Method not found: ${method}` } });
   }

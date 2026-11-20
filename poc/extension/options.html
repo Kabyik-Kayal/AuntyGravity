@@ -1,0 +1,10 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>AuntyGravity Bridge</title>
+<style>body{font:14px system-ui;max-width:560px;margin:2rem auto;padding:0 1rem}input{width:100%;padding:.5rem;font:13px monospace}button{margin-top:.5rem;padding:.4rem .9rem}</style>
+<h1>AuntyGravity Bridge</h1>
+<p>Paste the pairing token once. Get it by running <code>node poc/tools/token.mjs</code> (it copies the token to your clipboard).</p>
+<input id="t" type="password" autocomplete="off" placeholder="pairing token">
+<br><button id="save">Save</button> <span id="s"></span>
+<p>The bridge only talks to <code>http://127.0.0.1:9334</code> and only acts on <code>gemini.google.com</code>. Each request opens a visible Gemini tab.</p>
+<script src="options.js"></script>

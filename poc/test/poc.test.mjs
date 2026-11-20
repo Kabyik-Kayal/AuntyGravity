@@ -11,10 +11,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hooksDir = path.join(root, 'workspace', '.agents', 'hooks');
 const server = path.join(root, 'mcp', 'server.mjs');
 
-const freshEnv = () => ({
-  ...process.env,
-  AUNTY_STATE_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'aunty-')),
-});
+// Default test state: stub adapter is live, so consult needs no approval prompt.
+const freshEnv = (adapter = 'stub') => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aunty-'));
+  if (adapter) fs.writeFileSync(path.join(dir, 'adapter.json'), JSON.stringify({ adapter }));
+  return { ...process.env, AUNTY_STATE_DIR: dir };
+};
 
 function hook(name, payload, env, raw) {
   const r = spawnSync('node', [path.join(hooksDir, name)], {
@@ -44,7 +46,7 @@ function mcp(env, calls) {
         responses.set(m.id, m);
         if (responses.size === calls.length) {
           p.kill();
-          resolve([...responses.values()]);
+          resolve([...responses.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1])); // async replies may arrive out of order
         }
       }
     });
@@ -59,11 +61,12 @@ const tool = (name, conversationId = 'c1', extra = {}) => ({ toolCall: { id: 't'
 
 test('MCP: handshake, tools/list, valid consult, invalid consult', async () => {
   const env = freshEnv();
-  const [a, b, c, d] = await mcp(env, [init, { method: 'tools/list' }, call({ task: 'do a thing' }), call({ task: '' })]);
+  const [a, b, c] = await mcp(env, [init, { method: 'tools/list' }, call({ task: 'do a thing' })]);
   assert.equal(a.result.protocolVersion, '2025-06-18');
   assert.deepEqual(b.result.tools.map((t) => t.name), ['consult']);
   assert.match(c.result.content[0].text, /^PLAN FROM GEMINI \(BINDING\)/);
   assert.equal(c.result.isError, undefined);
+  const [d] = await mcp(env, [call({ task: '' })]); // sequential, as a real client would
   assert.equal(d.result.isError, true);
   const last = JSON.parse(fs.readFileSync(path.join(env.AUNTY_STATE_DIR, 'last_consult.json'), 'utf8'));
   assert.equal(last.status, 'error');
@@ -112,6 +115,24 @@ test('gate: even after planning, edits to hooks, state and MCP config are denied
     assert.equal(hook('gate.mjs', withArgs('edit_file', args), env).decision, 'deny', JSON.stringify(args));
   }
   assert.equal(hook('gate.mjs', withArgs('read_file', { AbsolutePath: 'poc/workspace/.agents/hooks.json' }), env).decision, 'allow');
+});
+
+test('gate: an unknown or missing adapter state forces per-call user approval; stub, fake and chrome do not', () => {
+  for (const adapter of ['some-future-adapter', null]) {
+    const r = hook('gate.mjs', tool('mcp_auntygravity_consult'), freshEnv(adapter));
+    assert.equal(r.decision, 'force_ask', String(adapter));
+    assert.match(r.reason, /Gemini webchat/);
+  }
+  for (const adapter of ['stub', 'fake', 'chrome']) {
+    assert.equal(hook('gate.mjs', tool('mcp_auntygravity_consult'), freshEnv(adapter)).decision, 'allow', adapter);
+  }
+});
+
+test('gate: the bridge pairing token is unreadable by the executor, even via read-only tools', () => {
+  const env = freshEnv();
+  const r = hook('gate.mjs', { toolCall: { id: 't', name: 'read_file', args: { AbsolutePath: 'C:\\Users\\u\\.auntygravity\\ext-token' } }, conversationId: 'c1' }, env);
+  assert.equal(r.decision, 'deny');
+  assert.match(r.reason, /token/);
 });
 
 test('gate: unreadable payload fails closed', () => {

@@ -7,7 +7,9 @@ import path from 'node:path';
 export const stateDir = () =>
   process.env.AUNTY_STATE_DIR || path.join(os.homedir(), '.auntygravity', 'state');
 
-export const lastConsultPath = () => path.join(stateDir(), 'last_consult.json');
+export const adapterPath = () => path.join(stateDir(), 'adapter.json');
+
+export const lastConsultPath =() => path.join(stateDir(), 'last_consult.json');
 
 const safe = (id) => String(id ?? 'unknown').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
 

@@ -8,12 +8,14 @@ It makes no Gemini calls and touches no browser. Design: `docs/architecture/enfo
 - `mcp/server.mjs`: zero-dependency stdio MCP server exposing `consult` (returns a fixed plan).
 - `workspace/`: throwaway workspace. `AGENTS.md` (advisory protocol) and `.agents/hooks.json` plus `hooks/*.mjs` (enforcement).
 - `shared/state.mjs`: state helpers. State goes to `~/.auntygravity/state` (override with `AUNTY_STATE_DIR`), outside the repo.
-- `test/poc.test.mjs`: simulates Antigravity against the server and hooks.
+- `mcp/adapter/`: prompt building and strict response parsing, typed errors, lock, fake adapter, and `chrome-bridge.mjs` (loopback bridge to the extension).
+- `extension/`: Chrome MV3 extension (service worker, Gemini content script, options page).
+- `test/`: `poc.test.mjs` (server and hooks), `adapter.test.mjs` (prompt, parse, fake adapter), `bridge.test.mjs` (bridge protocol, manifest, content script on a fixture page).
 
 ## Run the simulated tests
 
 ```bash
-node --test poc/test/poc.test.mjs
+cd poc && npm install && npm test
 ```
 
 ## Try it in Antigravity (manual, not done by the tests)
@@ -31,8 +33,27 @@ node --test poc/test/poc.test.mjs
    - Before finishing, the Stop hook makes it report on each step.
 4. Inspect `~/.auntygravity/state/gate.log`. It lists real tool names and the allow or deny decisions. Use it to fix the provisional read-only allowlist in `gate.mjs` and the `consult` matcher in `hooks.json`.
 
-## Still unverified (needs the manual run)
+Verified in a live run: hooks fire, `deny` is honored under Turbo, MCP tools arrive as `call_mcp_tool` (`ServerName`, `ToolName`).
 
-- Real tool names, and what the MCP tool is called in hook payloads (the gate matches `/consult/i`).
-- Whether `deny` is honored under the Turbo permission preset.
+## Real Gemini via your own signed-in Chrome (the `chrome` adapter)
+
+Chrome 136+ refuses remote debugging on your default profile, so there is no Playwright/CDP route to your real session.
+Instead a small extension runs inside your normal Chrome profile. There is no new profile and no login handling.
+Each consult opens a visible Gemini tab, asks, and closes it.
+
+One-time setup:
+
+1. `chrome://extensions` -> turn on Developer mode -> Load unpacked -> choose `poc/extension`.
+2. Run `node poc/tools/token.mjs` (copies the pairing token to your clipboard), open the extension's Options page, paste, Save.
+3. In `~/.gemini/config/mcp_config.json`, add `"env": { "AUNTY_ADAPTER": "chrome" }` to the `auntygravity` entry. Consults then run without a per-call approval prompt (chosen for Turbo mode). The task text you send goes to Gemini webchat, so keep secrets out of consult inputs. An unknown or missing adapter state still forces an approval.
+
+How it works: while a consult runs, the server listens on `127.0.0.1:9334`. The extension long-polls it with the token, gets one job, drives the Gemini tab, and posts the answer back. If the extension has not connected after 6 seconds the server starts your default Chrome. Nothing listens when no consult is running.
+
+Other modes: `AUNTY_ADAPTER=stub` (default, fixed plan) and `fake` (tests). Selectors for the Gemini page are in `extension/content.js` and are **unverified** against the live page.
+
+## Still unverified
+
+- Gemini selectors (model picker, prompt box, send/stop buttons, response container) against the live page.
+- That `force_ask` actually prompts you under the Turbo permission preset.
 - Whether hooks fire for sub-agents.
+- The Antigravity tool-call timeout versus Gemini generation time.
