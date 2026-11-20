@@ -6,5 +6,7 @@ You are the executor. Gemini, reached through the `consult` tool, is the planner
 2. Treat the returned plan as binding. Execute its steps in order. Do not add, skip or reorder steps, and do not substitute your own design.
 3. If a step is impossible or a decision is missing, call `consult` again with `intent: "decision"`. Do not decide yourself.
 4. After each step, run that step's verification and report the result.
+5. If `consult` replies PENDING, call it again with `collect: true` (same task and model). Never resend the prompt, and do not act until you have the plan.
+6. Do not start sub-agents, swarms or workers. Their actions may bypass the checks, so the spawn tools are blocked.
 
 State-changing tools are blocked by a hook until `consult` has returned a plan.

@@ -6,7 +6,40 @@ const GEMINI = 'https://gemini.google.com/app';
 const MODELS = ['neon', 'hydrogen'];
 const MAX_PROMPT = 12000;
 // Leave the tab open when a human must act or the prompt may still be running.
-const KEEP_OPEN = new Set(['NEEDS_SIGN_IN', 'CONSENT_REQUIRED', 'CHALLENGE_REQUIRED', 'GENERATION_TIMEOUT']);
+const KEEP_OPEN = new Set(['NEEDS_SIGN_IN', 'CONSENT_REQUIRED', 'CHALLENGE_REQUIRED', 'GENERATION_TIMEOUT', 'GENERATION_PENDING']);
+
+// The tab holding a prompt that was sent but not yet answered, so a later `collect` job can fetch the answer.
+const getPending = async () => (await chrome.storage.local.get('pendingTab')).pendingTab;
+const setPending = (tabId) => chrome.storage.local.set({ pendingTab: { tabId, ts: Date.now() } });
+const clearPending = () => chrome.storage.local.remove('pendingTab');
+
+// Fetch the answer for a prompt already sent in the remembered tab. Never sends anything.
+async function runCollect(req) {
+  const pending = await getPending();
+  if (!pending) return { ok: false, code: 'UI_CHANGED', message: 'No pending Gemini answer to collect (the tab is gone or no prompt is waiting).' };
+  let tab;
+  try {
+    tab = await chrome.tabs.get(pending.tabId);
+  } catch {
+    await clearPending();
+    return { ok: false, code: 'UI_CHANGED', message: 'The pending Gemini tab was closed; nothing to collect.' };
+  }
+  if (!(tab.url ?? '').startsWith('https://gemini.google.com/')) {
+    await clearPending();
+    return { ok: false, code: 'UI_CHANGED', message: 'The pending tab is no longer on Gemini; refusing to interact.' };
+  }
+  let result;
+  try {
+    result = await chrome.tabs.sendMessage(tab.id, { type: 'collect', req: { model: req.model } });
+  } catch (e) {
+    result = { ok: false, code: 'BROWSER_UNAVAILABLE', message: String(e.message || e).split('\n')[0] };
+  }
+  if (result?.ok || !KEEP_OPEN.has(result?.code)) {
+    await clearPending();
+    chrome.tabs.remove(tab.id).catch(() => {});
+  }
+  return result ?? { ok: false, code: 'UI_CHANGED', message: 'No result from the Gemini tab.' };
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const getToken = async () => (await chrome.storage.local.get('token')).token;
@@ -30,8 +63,15 @@ function waitComplete(tabId, ms) {
 
 async function runJob(job) {
   const req = job?.req;
+  if (req?.collect === true && MODELS.includes(req.model)) return runCollect(req);
   if (!req || typeof req.prompt !== 'string' || !req.prompt.trim() || req.prompt.length > MAX_PROMPT || !MODELS.includes(req.model)) {
     return { ok: false, code: 'INVALID_INPUT', message: 'Bridge rejected a malformed job.' };
+  }
+  // A new consult supersedes any old pending tab: close it so tabs do not pile up.
+  const old = await getPending();
+  if (old) {
+    await clearPending();
+    chrome.tabs.remove(old.tabId).catch(() => {});
   }
   let tab;
   let result;
@@ -56,6 +96,7 @@ async function runJob(job) {
   } catch (e) {
     result = { ok: false, code: 'BROWSER_UNAVAILABLE', message: String(e.message || e).split('\n')[0] };
   }
+  if (tab && result && !result.ok && result.code === 'GENERATION_PENDING') await setPending(tab.id);
   if (tab && !(result && !result.ok && KEEP_OPEN.has(result.code))) chrome.tabs.remove(tab.id).catch(() => {});
   return result ?? { ok: false, code: 'UI_CHANGED', message: 'No result from the Gemini tab.' };
 }

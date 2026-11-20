@@ -29,6 +29,16 @@ if (s.planned && s.baseline && (s.auditRounds ?? 0) < MAX_AUDIT_ROUNDS) {
   }
 }
 
+// Gemini's answer is still pending: do not let the agent finish with nothing done; send it back to collect.
+if (s.waiting && (s.stopWaitRounds ?? 0) < 3) {
+  writeJson(file, { ...s, stopWaitRounds: (s.stopWaitRounds ?? 0) + 1 });
+  out({
+    decision: 'continue',
+    reason: "Gemini's answer is still pending. Call consult again with collect: true (same task and model) to fetch it, then follow the plan. Do not resend the prompt.",
+  });
+  process.exit(0);
+}
+
 const isContinuation = Boolean(
   payload?.continuationActive ||
   (typeof payload?.executionNum === 'number' && payload?.executionNum > 0) ||

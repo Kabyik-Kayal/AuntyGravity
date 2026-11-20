@@ -1,5 +1,6 @@
 // PreToolUse gate (fail-closed): only read-only tools and `consult` run until Gemini has planned.
-import { adapterPath, appendLog, isConsultCall, out, readJson, readStdinJson, sessionPath } from '../../../shared/state.mjs';
+import fs from 'node:fs';
+import { adapterPath, appendLog, isConsultCall, out, readJson, readStdinJson, sessionPath, spawnFlagPath } from '../../../shared/state.mjs';
 import { allowedFromPlan, extractPaths, isAllowed, isFileMutatingTool } from '../../../shared/plan-scope.mjs';
 
 // Names are provisional: confirm against real transcripts (see state/tool-names.log). Override with AUNTY_READONLY_RE.
@@ -25,6 +26,11 @@ const PROTECTED = /(\.agents[\\/]|poc[\\/](shared|mcp|extension|tools)[\\/]|\.au
 
 // The executor must not kill processes (observed: Flash ran Stop-Process on the consult MCP server mid-task).
 const KILLS = /(stop-process|taskkill|\bkill(all)?\b|\bpkill\b|stop-service|wmic\s+process|\.terminate\(\))/i;
+// Sub-agents and swarm workers run in their own conversations. It is unverified whether hooks reach them, so the
+// spawn point itself is blocked. Tool names are inferred from Antigravity's swarm skill and may need extending.
+const SPAWN = /^(swarm|swarm_wait|post_message|read_board)$|subagent|spawn|(start|create|launch|invoke)_?(sub)?_?agent/i;
+const spawnAllowed = () => fs.existsSync(spawnFlagPath());
+
 const killsProcess = (args) => KILLS.test(String(args?.CommandLine ?? args?.command ?? ''));
 const touchesProtected = (v) =>
   typeof v === 'string' ? PROTECTED.test(v) : v && typeof v === 'object' ? Object.values(v).some(touchesProtected) : false;
@@ -39,6 +45,9 @@ if (touchesSecret(payload.toolCall.args)) {
 } else if (killsProcess(payload.toolCall.args)) {
   decision = 'deny';
   reason = 'Blocked by AuntyGravity: stopping or killing processes is not permitted. If a tool such as consult misbehaves, report it to the user instead.';
+} else if (SPAWN.test(name) && !spawnAllowed()) {
+  decision = 'deny';
+  reason = 'Blocked by AuntyGravity: sub-agents, swarms and workers are not permitted because their actions may bypass this gate. Do the work yourself under the Gemini plan.';
 } else if (isConsultCall(payload.toolCall)) {
   // The user opted out of per-call approval for the chrome adapter (Turbo workflow). Note the trade-off: the consult
   // task and context go to Gemini webchat without a prompt. Fail-closed: an unknown or missing adapter state still asks.
@@ -76,10 +85,12 @@ if (touchesSecret(payload.toolCall.args)) {
   decision = 'deny';
   reason =
     'Blocked by AuntyGravity: no Gemini plan exists for this session. ' +
-    'Call the consult tool first (Gemini plans, you execute), then retry this action.';
+    (session?.waiting
+      ? "Gemini's answer is still pending. Call consult again with collect: true (same task and model) to fetch it. Do not resend the prompt."
+      : 'Call the consult tool first (Gemini plans, you execute), then retry this action.');
 }
 
 // Tool name and argument KEY names (to verify tool schemas); never argument values.
 const keys = payload.toolCall.args && typeof payload.toolCall.args === 'object' ? ` argKeys=${Object.keys(payload.toolCall.args).join(',')}` : '';
-appendLog('gate.log', `${decision} ${name}${keys}`);
+appendLog('gate.log', `${decision} ${name}${keys} conv=${String(payload.conversationId ?? '?').slice(0, 8)}`); // conversation id prefix shows whether sub-agents reach the hooks
 out(reason ? { decision, reason } : { decision });

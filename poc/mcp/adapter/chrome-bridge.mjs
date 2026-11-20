@@ -50,11 +50,11 @@ const DEFAULTS = {
   launch: true,
 };
 
-export async function ask({ prompt, model }, opts = {}) {
+export async function ask({ prompt, model, collect }, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
   const release = acquireLock();
   const token = getToken();
-  const job = { id: crypto.randomUUID(), req: { prompt, model } };
+  const job = { id: crypto.randomUUID(), req: { prompt, model, collect: collect === true } };
   let taken = false;
   let finish;
   const done = new Promise((resolve) => (finish = resolve));

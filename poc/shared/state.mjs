@@ -9,6 +9,9 @@ export const stateDir = () =>
 
 export const adapterPath = () => path.join(stateDir(), 'adapter.json');
 
+// Experiment switch: if this file exists, the gate lets sub-agent/swarm tools through (to test whether hooks reach them).
+export const spawnFlagPath = () => path.join(stateDir(), 'allow-spawn');
+
 export const lastConsultPath =() => path.join(stateDir(), 'last_consult.json');
 
 const safe = (id) => String(id ?? 'unknown').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);

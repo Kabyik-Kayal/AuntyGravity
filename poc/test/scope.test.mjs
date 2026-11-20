@@ -134,6 +134,21 @@ test('record: a plan from an outdated server (no schema 2) fails with restart gu
   assert.match(r.injectSteps[0].errorMessage.userMessage, /outdated[\s\S]*Restart Antigravity/);
 });
 
+test('gate: sub-agent and swarm spawn tools are denied (with or without a plan) unless the experiment flag exists; conversation ids are logged', () => {
+  const cwd = tmp('aunty-ws-');
+  const none = planned(['a.txt'], cwd);
+  const names = ['swarm', 'swarm_wait', 'post_message', 'read_board', 'browser_subagent', 'invoke_subagent', 'spawn_agent', 'start_agent'];
+  for (const n of names) {
+    const r = none.run('gate.mjs', tc(n, { Action: 'add' }));
+    assert.equal(r.decision, 'deny', n);
+    assert.match(r.reason, /sub-agents, swarms and workers/);
+  }
+  for (const n of ['read_file', 'run_command', 'manage_task', 'write_file']) assert.notEqual(none.run('gate.mjs', tc(n, { Path: 'a.txt', CommandLine: 'ls' })).reason?.match(/sub-agents/)?.[0], 'sub-agents', n);
+  fs.writeFileSync(path.join(none.dir, 'allow-spawn'), '');
+  assert.equal(none.run('gate.mjs', tc('swarm', { Action: 'status' })).decision, 'allow');
+  assert.match(fs.readFileSync(path.join(none.dir, 'gate.log'), 'utf8'), /allow swarm argKeys=Action conv=cv/);
+});
+
 test('record: failure reasons are accurate (stale file is not "outdated"; client timeout and tool error are reported as such)', () => {
   const mk = (last, payloadExtra = {}) => {
     const dir = tmp('aunty-rs-');
@@ -230,4 +245,64 @@ test('audit: a clean tree, deletions of in-plan files, and non-git workspaces do
   const second = planned(['a.txt'], plain);
   fs.writeFileSync(path.join(plain, 'anything.txt'), 'x');
   assert.doesNotMatch(second.run('stop-check.mjs', { executionNum: 0 }).reason ?? '', /outside/); // no git: audit skipped
+});
+
+// ---------- pending answers ----------
+function waitingSession(rounds) {
+  const dir = tmp('aunty-wt-');
+  fs.writeFileSync(path.join(dir, 'adapter.json'), '{"adapter":"chrome"}');
+  const env = { ...process.env, AUNTY_STATE_DIR: dir };
+  const run = (script, payload) => JSON.parse(spawnSync('node', [path.join(hooksDir, script)], { input: JSON.stringify({ conversationId: 'cv', cwd: dir, ...payload }), env, encoding: 'utf8', cwd: hooksDir }).stdout);
+  const session = () => JSON.parse(fs.readFileSync(path.join(dir, 'sessions', 'cv.json'), 'utf8'));
+  const consultResult = (r) => {
+    fs.writeFileSync(path.join(dir, 'last_consult.json'), JSON.stringify(r));
+    run('record.mjs', { toolCall: { name: 'mcp_auntygravity_consult', args: {} } });
+  };
+  for (let i = 0; i < rounds; i++) consultResult({ schema: 2, status: 'waiting', ts: Date.now() });
+  return { run, session, consultResult, dir };
+}
+
+test('pending: a PENDING reply is waiting, not failed; actions stay blocked with collect guidance; Stop sends the agent back', () => {
+  const w = waitingSession(1);
+  const s = w.session();
+  assert.equal(s.waiting, true);
+  assert.equal(s.failed, false);
+  assert.equal(s.planned, false);
+  assert.equal(w.run('inject-plan.mjs', {}).terminationBehavior, undefined); // the run is NOT halted
+
+  const denied = w.run('gate.mjs', tc('write_file', { Path: 'a.txt' }));
+  assert.equal(denied.decision, 'deny');
+  assert.match(denied.reason, /collect: true/);
+  assert.equal(w.run('gate.mjs', tc('mcp_auntygravity_consult', { collect: true })).decision, 'allow'); // collecting stays open
+
+  for (let i = 0; i < 3; i++) {
+    const stop = w.run('stop-check.mjs', { executionNum: 0 });
+    assert.equal(stop.decision, 'continue');
+    assert.match(stop.reason, /collect: true/);
+  }
+  assert.equal(w.run('stop-check.mjs', { executionNum: 0 }).decision, 'allow'); // bounded
+});
+
+test('pending: a collected plan unlocks writes; too many PENDING rounds fail with a clear reason', () => {
+  const w = waitingSession(1);
+  w.consultResult({ schema: 2, status: 'complete', id: 'c2', ts: Date.now(), plan: [{ step: 's', files: ['a.txt'], verification: [] }], text: 'PLAN' });
+  const s = w.session();
+  assert.equal(s.planned, true);
+  assert.equal(s.waiting, false);
+  assert.equal(s.pendingRounds, 0);
+  assert.equal(w.run('gate.mjs', tc('write_file', { Path: 'a.txt' })).decision, 'allow');
+
+  const stuck = waitingSession(5); // 5 consecutive PENDING replies
+  const st = stuck.session();
+  assert.equal(st.failed, true);
+  assert.equal(st.waiting, false);
+  assert.match(st.failReason, /did not finish after 4 collection attempts/);
+  assert.equal(stuck.run('inject-plan.mjs', {}).terminationBehavior, 'terminate');
+});
+
+test('pending: a stale or old-schema waiting marker does not count as pending', () => {
+  const w = waitingSession(0);
+  w.consultResult({ status: 'waiting', ts: Date.now() }); // no schema 2
+  assert.equal(w.session().waiting, false);
+  assert.equal(w.session().failed, true);
 });

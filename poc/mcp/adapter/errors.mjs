@@ -8,6 +8,7 @@ export const CODES = [
   'CHALLENGE_REQUIRED',
   'UI_CHANGED',
   'GENERATION_TIMEOUT',
+  'GENERATION_PENDING', // not a failure: the prompt was sent once and the answer can be collected
   'UNSTRUCTURED_RESPONSE',
   'BROWSER_UNAVAILABLE',
   'BUSY',

@@ -119,3 +119,27 @@ Gemini now declares, per plan step, a required `files` list (exact files or dire
 2. **Stop audit (after the fact):** shell commands cannot be scoped in advance, so a git baseline of dirty files (path, size, mtime) is taken when the plan is recorded. At Stop, any file that is new or changed and not in the plan sends the agent back to revert it or re-consult, at most 3 rounds per plan. Requires a git repository; otherwise the audit is skipped.
 
 Limits: `run_command` itself is not blocked, so a command can still write outside the plan until the Stop audit catches it (the audit sees only changes to files git can see, so it misses ignored files and anything outside the workspace). Symlinks are not resolved. Plan quality is still Gemini's. The real argument names for `write_file` and `edit_file` are inferred from the key-name suffix (`...File`, `...Path`, `...Uri`) and are logged to `gate.log` as key names for verification. A live Antigravity run is needed to confirm them.
+
+## Sub-agents and swarm workers (added 2026-11-20)
+
+Antigravity's `swarm` skill runs workers as separate agents in their own conversations, optionally in their own working copy or clone. The hooks documentation says nothing about whether hooks reach them. Two risks follow: a worker's tool calls might skip the gate entirely, and a worker working from a different directory might not discover `.agents/hooks.json` at all, since discovery walks up from the working directory to the repository root.
+
+Until that is verified, the spawn point is blocked instead of trusted:
+
+- The gate denies `swarm`, `swarm_wait`, `post_message`, `read_board` and any tool whose name contains `subagent` or `spawn`, with or without a plan. `AGENTS.md` tells the executor not to use them.
+- Fail-closed by design: a worker conversation never has a plan, so if hooks do reach it, every state-changing call is denied there too.
+- `gate.log` now records an 8-character conversation id prefix per decision, so a run shows whether other conversations hit the hooks.
+- Experiment switch: creating `~/.auntygravity/state/allow-spawn` lets spawn tools through so the question can be answered. If a worker's actions never appear in `gate.log` but its files appear on disk, hooks do not reach workers and the spawn block must stay permanently.
+
+The spawn tool names are inferred from the bundled swarm skill and may need extending after a live run.
+
+## Slow answers: PENDING and collect (added 2026-11-20)
+
+Antigravity cancels MCP tool calls at 180 s (measured: a call at 14:38:35 was cut at 14:41:35). Neon answered one consult in 42 s and another not within about 150 s, so a single blocking call is not reliable.
+
+- The extension waits up to 125 s for the answer. If Gemini is still working it returns `GENERATION_PENDING`, leaves the tab open and remembers it. This is not a failure.
+- `consult` then replies `PENDING: ... will NOT be resent ... call consult again with collect: true`. Flash calls `consult` with `collect: true` (same task and model). The extension reads the answer from the remembered tab and never sends anything. A new consult closes an old pending tab.
+- Hooks: a PENDING reply puts the session in a `waiting` state. It is not failed, so the run continues, but state-changing tools stay blocked with a message that says to collect. The Stop hook sends the agent back to collect (at most 3 times). After 4 consecutive PENDING replies the session fails with a clear reason.
+- A collected plan goes through the same parsing, scope and baseline steps as a direct one.
+
+Unverified live: the `collect` path against the real Gemini page, and that the diagnostics in a PENDING reply identify a selector problem rather than slowness.

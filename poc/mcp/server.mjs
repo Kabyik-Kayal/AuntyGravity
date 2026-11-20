@@ -25,7 +25,8 @@ const TOOL = {
   name: 'consult',
   description:
     'Ask the Gemini planner for a plan, decision or review. Gemini decides; you execute. ' +
-    'Call this before any edit or command, and again for any deviation or missing decision.',
+    'Call this before any edit or command, and again for any deviation or missing decision. ' +
+    'If it replies PENDING, call it again with collect: true (same task and model) to fetch the answer; never resend.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -42,6 +43,7 @@ const TOOL = {
       },
       constraints: { type: 'array', items: { type: 'string' } },
       acceptance_criteria: { type: 'array', items: { type: 'string' } },
+      collect: { type: 'boolean', description: 'Only after a PENDING reply: fetch the answer to the prompt already sent. Pass the same task and model.' },
     },
     required: ['task'],
   },
@@ -67,9 +69,10 @@ async function consult(args = {}) {
   const intent = args.intent ?? 'plan';
   const model = args.model ?? 'neon';
   const task = args.task;
+  const collect = args.collect === true;
   const problem =
-    typeof task !== 'string' || !task.trim() ? 'task is required'
-    : task.length > MAX_TASK ? `task exceeds ${MAX_TASK} characters`
+    !collect && (typeof task !== 'string' || !task.trim()) ? 'task is required'
+    : typeof task === 'string' && task.length > MAX_TASK ? `task exceeds ${MAX_TASK} characters`
     : !INTENTS.includes(intent) ? `intent must be one of ${INTENTS.join(', ')}`
     : !MODELS.includes(model) ? `model must be one of ${MODELS.join(', ')}`
     : !isCtx(args.context) ? 'context must be a list of {label, text} strings'
@@ -81,8 +84,8 @@ async function consult(args = {}) {
   const ask = await loadAsk();
   if (ask) {
     try {
-      const prompt = buildPrompt({ intent, task, context: args.context, constraints: args.constraints, acceptance_criteria: args.acceptance_criteria });
-      const { text: raw, modelUsed } = await ask({ prompt, model });
+      const prompt = collect ? undefined : buildPrompt({ intent, task, context: args.context, constraints: args.constraints, acceptance_criteria: args.acceptance_criteria });
+      const { text: raw, modelUsed } = await ask({ prompt, model, collect });
       const parsed = parseResponse(raw);
       const text = renderResult(parsed, { modelUsed, intent });
       writeJson(lastConsultPath(), {
@@ -96,6 +99,13 @@ async function consult(args = {}) {
       });
       return { content: [{ type: 'text', text }] };
     } catch (e) {
+      if (e instanceof ConsultError && e.code === 'GENERATION_PENDING') {
+        // Not a failure: the prompt was sent once; the answer can be collected from the open tab.
+        writeJson(lastConsultPath(), { schema: 2, status: 'waiting', ts: Date.now() });
+        return {
+          content: [{ type: 'text', text: 'PENDING: Gemini is still working on your request. The prompt was sent once and will NOT be resent. Do not change anything yet. Call consult again with collect: true (same task and model) to fetch the answer.' }],
+        };
+      }
       const code = e instanceof ConsultError ? e.code : 'BROWSER_UNAVAILABLE';
       return fail(code, e instanceof ConsultError ? e.message : `Unexpected adapter failure: ${String(e.message).split('\n')[0]}`);
     }

@@ -154,3 +154,31 @@ test('lock: a second concurrent request gets BUSY; a stale lock is replaced', ()
   delete process.env.AUNTY_LOCK_FILE;
 });
 
+
+// ---------- pending / collect through the server ----------
+test('server: PENDING is a non-error reply; a later collect call returns the plan', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aunty-col-'));
+  const env = { ...process.env, AUNTY_STATE_DIR: dir, AUNTY_ADAPTER: 'fake', AUNTY_FAKE_MODE: 'pending' };
+  const last = () => JSON.parse(fs.readFileSync(path.join(dir, 'last_consult.json'), 'utf8'));
+
+  const [first] = await rpc(env, [consultCall({ task: 'do it' })]);
+  assert.equal(first.result.isError, undefined); // not a failure
+  assert.match(first.result.content[0].text, /^PENDING:[\s\S]*NOT be resent[\s\S]*collect: true/);
+  assert.equal(last().status, 'waiting');
+  assert.equal(last().schema, 2);
+
+  const [second] = await rpc(env, [consultCall({ task: 'do it', collect: true })]);
+  assert.equal(second.result.isError, undefined);
+  assert.match(second.result.content[0].text, /^PLAN FROM GEMINI \(BINDING\)/);
+  assert.equal(last().status, 'complete');
+});
+
+test('server: collect works without a task, and tool schema advertises collect', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aunty-col2-'));
+  const env = { ...process.env, AUNTY_STATE_DIR: dir, AUNTY_ADAPTER: 'fake', AUNTY_FAKE_MODE: 'pending' };
+  const [res] = await rpc(env, [consultCall({ collect: true })]);
+  assert.equal(res.result.isError, undefined);
+  const [list] = await rpc(env, [{ method: 'tools/list' }]);
+  assert.equal(list.result.tools[0].inputSchema.properties.collect.type, 'boolean');
+  assert.match(list.result.tools[0].description, /PENDING/);
+});

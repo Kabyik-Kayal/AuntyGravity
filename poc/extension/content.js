@@ -8,7 +8,7 @@
   const DEFAULTS = {
     allowedHosts: ['gemini.google.com'],
     sendConfirmMs: 10000,
-    generateTimeoutMs: 150000, // Antigravity cancels MCP tool calls at 180s (measured), so finish earlier
+    generateTimeoutMs: 125000, // must finish (and return diagnostics) before the bridge's 170s cap, which is under Antigravity's measured 180s tool limit
     stableMs: 3000,
     pollMs: 500,
   };
@@ -35,7 +35,7 @@
     textbox: '[role="textbox"], textarea, input[type="text"]',
   };
   const byRole = (role, re) => [...document.querySelectorAll(ROLE[role])].filter((el) => visible(el) && re.test(nameOf(el)));
-  const disabled = (el) => el.disabled || el.getAttribute('aria-disabled') === 'true';
+  const disabled = (el) => el.disabled || el.getAttribute('aria-disabled') === 'true' || /disabled|mdc-button--disabled|mat-mdc-button-disabled/.test(el.className?.toString?.() ?? '');
 
   const SELECTORS = {
     input: () =>
@@ -78,6 +78,22 @@
       return `responsesMatched=${lens.length} responseTextLengths=${JSON.stringify(lens)} stopButtons=${SELECTORS.stop().length} answerChain=${JSON.stringify(chain)}`;
     } catch (e) {
       return `diag failed: ${e.message}`;
+    }
+  }
+
+  // Diagnostic for send failures: element states and counts, plus short UI notices (alerts/dialogs/snackbars); no chat text.
+  function describeSend() {
+    try {
+      const b = SELECTORS.send();
+      const inp = SELECTORS.input();
+      const notices = [...document.querySelectorAll('[role="alert"], [role="dialog"], snack-bar-container, .mdc-snackbar')]
+        .filter(visible)
+        .slice(0, 4)
+        .map((el) => (el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 90));
+      const sendish = [...document.querySelectorAll(ROLE.button)].filter(visible).map(nameOf).filter((n) => /send|submit|run|stop/i.test(n)).slice(0, 6);
+      return `send=${b ? 'found' : 'missing'} ariaDisabled=${b?.getAttribute('aria-disabled')} disabledProp=${b?.disabled} cls=${JSON.stringify((b?.className || '').toString().slice(0, 80))} editorLen=${inp ? textOf(inp).length : -1} sendish=${JSON.stringify(sendish)} notices=${JSON.stringify(notices)}`;
+    } catch (e) {
+      return `send diag failed: ${e.message}`;
     }
   }
 
@@ -149,16 +165,27 @@
     fill(input, prompt);
     if (!textOf(input).trim().length) throw new DriverError('UI_CHANGED', 'The prompt text did not enter the prompt box.');
 
-    const btn = await waitFor(() => { const b = SELECTORS.send(); return b && !disabled(b) ? b : null; }, 2000);
-    if (!btn) throw new DriverError('UI_CHANGED', 'Send button not found or disabled.');
+    const btn = await waitFor(() => { const b = SELECTORS.send(); return b && !disabled(b) ? b : null; }, 5000);
+    if (!btn) throw new DriverError('UI_CHANGED', `Send button not found or disabled. [diag ${describeSend()}]`);
     btn.click();
 
+    // Started = generation running, a response appeared, or the CURRENT prompt box (the page may re-render it) emptied.
+    const started = () => SELECTORS.stop().length > 0 || SELECTORS.responses().length > before || !textOf(SELECTORS.input() || { textContent: '' }).trim().length;
     const end = Date.now() + cfg.sendConfirmMs;
+    let clickedAgain = false;
+    const retryAt = Date.now() + cfg.retryClickMs;
     while (Date.now() < end) {
-      if (SELECTORS.stop().length || SELECTORS.responses().length > before || !textOf(input).trim().length) return;
+      if (started()) return;
+      // Nothing started and the text is still in the box: the first click may have landed before the page enabled
+      // sending. Click once more. This cannot duplicate a send, because a started send empties the box.
+      if (!clickedAgain && Date.now() >= retryAt) {
+        clickedAgain = true;
+        const again = SELECTORS.send();
+        if (again && !disabled(again)) again.click();
+      }
       await sleep(cfg.pollMs);
     }
-    throw new DriverError('UI_CHANGED', `The prompt was not accepted by the page (nothing started). [diag ${describeResponseArea()}]`);
+    throw new DriverError('UI_CHANGED', `The prompt was not accepted by the page (nothing started). [diag ${describeSend()} ${describeResponseArea()}]`);
   }
 
   async function waitForAnswer(before, cfg) {
@@ -178,7 +205,8 @@
       await sleep(cfg.pollMs);
     }
     // Do NOT resubmit: the prompt may still be running or may have completed.
-    throw new DriverError('GENERATION_TIMEOUT', `Gemini did not finish in time. The prompt was not resent; check the tab. [diag ${describeResponseArea()}]`);
+    // Still working after our wait: report PENDING (not a failure). The tab stays open and `collect` can fetch the answer.
+    throw new DriverError('GENERATION_PENDING', `Gemini is still working. The prompt was not resent. [diag ${describeResponseArea()}]`);
   }
 
   async function ask({ prompt, model }, overrides = {}) {
@@ -195,12 +223,26 @@
     }
   }
 
-  globalThis.__auntyDriver = { ask };
+  // Fetch the answer to a prompt that was already sent in this tab (never sends anything).
+  async function collect(_req, overrides = {}) {
+    const cfg = { ...DEFAULTS, ...overrides };
+    try {
+      guard(cfg);
+      const n = SELECTORS.responses().length;
+      if (!n) throw new DriverError('UI_CHANGED', 'No Gemini response found in this tab to collect.');
+      return { ok: true, text: await waitForAnswer(n - 1, cfg), modelUsed: _req?.model };
+    } catch (e) {
+      return { ok: false, code: e.code || 'UI_CHANGED', message: String(e.message || e) };
+    }
+  }
+
+  globalThis.__auntyDriver = { ask, collect };
 
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       if (msg?.type === 'ping') reply({ ok: true });
       else if (msg?.type === 'ask') ask(msg.req).then(reply);
+      else if (msg?.type === 'collect') collect(msg.req).then(reply);
       else return false;
       return true; // async reply
     });

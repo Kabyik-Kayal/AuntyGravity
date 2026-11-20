@@ -45,7 +45,7 @@ test('bridge: job goes out, answer comes back, server and lock are released', as
   const r = await bridgeAsk({ prompt: 'hello', model: 'neon' }, opts);
   const job = await ext1;
   assert.deepEqual(r, { text: 'ANSWER', modelUsed: 'neon' });
-  assert.deepEqual(job.req, { prompt: 'hello', model: 'neon' });
+  assert.deepEqual(job.req, { prompt: 'hello', model: 'neon', collect: false });
   assert.equal(await fetch(`${BASE}/job`).catch(() => 'closed'), 'closed'); // nothing listening afterwards
   assert.ok(!fs.existsSync(process.env.AUNTY_LOCK_FILE));
 });
@@ -136,18 +136,20 @@ window.sentText = '';
 $('picker').onclick = () => { $('menu').hidden = !$('menu').hidden; };
 for (const id of ['neon', 'hydrogen']) { const el = $(id); if (el) el.onclick = () => { $('picker').textContent = el.textContent; $('menu').hidden = true; }; }
 $('send').onclick = () => {
+  window.clicks = (window.clicks || 0) + 1;
   if ('${mode}' === 'deadsend') return;
+  if ('${mode}' === 'ignorefirst' && window.clicks === 1) return; // page not ready for the first click
   window.sends++;
   window.sentText = $('in').innerText;
   const stop = document.createElement('button'); stop.setAttribute('aria-label', 'Stop response'); stop.textContent = 'Stop'; document.body.append(stop);
   $('in').textContent = '';
   if ('${mode}' === 'slow') return;
+  const m = document.createElement('message-content'); // like Gemini: the container exists as soon as generation starts
+  $('out').append(m);
   setTimeout(() => {
-    const m = document.createElement('message-content');
     m.textContent = ${JSON.stringify(ANSWER)};
-    $('out').append(m);
     stop.remove();
-  }, 400);
+  }, '${mode}' === 'late' ? 2500 : 400);
 };
 </script>`;
 
@@ -213,11 +215,67 @@ test('content driver: a page outside the allowed origin is refused before intera
   });
 });
 
-test('content driver: prompt not accepted -> UI_CHANGED; never-finishing answer -> GENERATION_TIMEOUT, sent once', { skip }, async () => {
+test('content driver: prompt not accepted -> UI_CHANGED; never-finishing answer -> GENERATION_PENDING, sent once', { skip }, async () => {
   await withPage('deadsend', async (page, ask) => assert.equal((await ask({ prompt: 'p', model: 'neon' })).code, 'UI_CHANGED'));
   await withPage('slow', async (page, ask) => {
     const r = await ask({ prompt: 'p', model: 'neon' }, { generateTimeoutMs: 1500 });
-    assert.equal(r.code, 'GENERATION_TIMEOUT');
+    assert.equal(r.code, 'GENERATION_PENDING');
     assert.equal(await page.evaluate(() => window.sends), 1); // exactly one submission, no retry
+  });
+});
+
+test('content driver: a slow answer is PENDING, then collect fetches it from the same tab without resending', { skip }, async () => {
+  await withPage('late', async (page, ask) => {
+    const first = await ask({ prompt: 'p', model: 'neon' }, { generateTimeoutMs: 1000 });
+    assert.equal(first.ok, false);
+    assert.equal(first.code, 'GENERATION_PENDING');
+    assert.match(first.message, /not resent/);
+    const got = await page.evaluate(([rq, c]) => window.__auntyDriver.collect(rq, c), [{ model: 'neon' }, { ...FAST, generateTimeoutMs: 8000 }]);
+    assert.equal(got.ok, true, JSON.stringify(got));
+    assert.equal(parseResponse(got.text).plan[0].step, 'do x');
+    assert.equal(await page.evaluate(() => window.sends), 1); // still exactly one submission
+  });
+});
+
+test('content driver: collect with nothing to collect, or on the wrong origin, stops with a typed error', { skip }, async () => {
+  await withPage('ok', async (page) => {
+    const none = await page.evaluate(([rq, c]) => window.__auntyDriver.collect(rq, c), [{ model: 'neon' }, FAST]);
+    assert.equal(none.code, 'UI_CHANGED');
+    const wrong = await page.evaluate(([rq, c]) => window.__auntyDriver.collect(rq, c), [{ model: 'neon' }, { ...FAST, allowedHosts: ['gemini.google.com'] }]);
+    assert.equal(wrong.code, 'UI_CHANGED');
+    assert.equal(await page.evaluate(() => window.sends), 0);
+  });
+});
+
+test('bridge: a collect job carries collect:true and no prompt', async () => {
+  const token = isolate();
+  const ext1 = fakeExtension(token, () => ({ ok: true, text: 'ANSWER', modelUsed: 'neon' }));
+  await bridgeAsk({ model: 'neon', collect: true }, opts);
+  const job = await ext1;
+  assert.equal(job.req.collect, true);
+  assert.equal(job.req.prompt, undefined);
+});
+
+test('bridge: a PENDING report from the extension surfaces as the GENERATION_PENDING code', async () => {
+  const token = isolate();
+  const ext1 = fakeExtension(token, () => ({ ok: false, code: 'GENERATION_PENDING', message: 'still working' }));
+  await assert.rejects(bridgeAsk({ prompt: 'p', model: 'neon' }, opts), (e) => e.code === 'GENERATION_PENDING');
+  await ext1;
+});
+
+test('content driver: if the first send click is ignored it clicks once more and the prompt is sent exactly once', { skip }, async () => {
+  await withPage('ignorefirst', async (page, ask) => {
+    const r = await ask({ prompt: 'p', model: 'neon' }, { retryClickMs: 300 });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(await page.evaluate(() => window.clicks), 2);
+    assert.equal(await page.evaluate(() => window.sends), 1);
+  });
+});
+
+test('content driver: a send that never starts reports UI_CHANGED with send-button diagnostics', { skip }, async () => {
+  await withPage('deadsend', async (page, ask) => {
+    const r = await ask({ prompt: 'p', model: 'neon' }, { retryClickMs: 300 });
+    assert.equal(r.code, 'UI_CHANGED');
+    assert.match(r.message, /diag send=found[\s\S]*editorLen=1/);
   });
 });

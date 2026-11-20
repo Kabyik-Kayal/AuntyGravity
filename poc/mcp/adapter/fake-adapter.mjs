@@ -10,11 +10,14 @@ const PLAN = {
   risks: [],
 };
 
-export async function ask({ model }) {
+export async function ask({ model, collect }) {
   const mode = process.env.AUNTY_FAKE_MODE || 'ok';
   if (mode === 'signin') throw new ConsultError('NEEDS_SIGN_IN', 'Signed out.');
   if (mode === 'unavailable') throw new ConsultError('MODEL_UNAVAILABLE', `${model} unavailable.`);
   if (mode === 'prose') return { text: 'Sure! Here is my advice in plain words.', modelUsed: model };
+  // pending: first call is still generating, the collect call gets the answer. pendingforever: never answers.
+  if (mode === 'pending' && !collect) throw new ConsultError('GENERATION_PENDING', 'Gemini is still working.');
+  if (mode === 'pendingforever') throw new ConsultError('GENERATION_PENDING', 'Gemini is still working.');
   if (mode === 'crash') throw new Error('boom');
   if (mode === 'slow') await new Promise((r) => setTimeout(r, 400));
   return { text: `Here you go:\n\`\`\`json\n${JSON.stringify(PLAN)}\n\`\`\``, modelUsed: model };
