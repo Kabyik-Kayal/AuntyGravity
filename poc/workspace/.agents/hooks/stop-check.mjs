@@ -1,10 +1,19 @@
 // Stop: once per user turn, stop the agent finishing before it reports on the plan steps.
-import { out, readJson, readStdinJson, sessionPath } from '../../../shared/state.mjs';
+import { appendLog, out, readJson, readStdinJson, sessionPath, writeJson } from '../../../shared/state.mjs';
 
 const payload = readStdinJson();
-const s = readJson(sessionPath(payload?.conversationId), {});
+appendLog('stop.log', JSON.stringify(payload));
+const file = sessionPath(payload?.conversationId);
+const s = readJson(file, {});
 
-if (s.planned && !payload?.continuationActive) {
+const isContinuation = Boolean(
+  payload?.continuationActive ||
+  (typeof payload?.executionNum === 'number' && payload?.executionNum > 0) ||
+  s.stopChecked
+);
+
+if (s.planned && !isContinuation) {
+  writeJson(file, { ...s, stopChecked: true });
   out({
     decision: 'continue',
     reason: 'Before finishing, state for each step of the Gemini plan whether it was executed and what its verification showed. If any step is unfinished, finish it or call consult.',

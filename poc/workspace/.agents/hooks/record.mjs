@@ -1,10 +1,10 @@
 // PostToolUse on consult: mark this conversation as planned (or failed) from the server-written result.
-import { appendLog, lastConsultPath, out, readJson, readStdinJson, sessionPath, writeJson } from '../../../shared/state.mjs';
+import { appendLog, isConsultCall, lastConsultPath, out, readJson, readStdinJson, sessionPath, writeJson } from '../../../shared/state.mjs';
 
 const FRESH_MS = 10 * 60 * 1000;
 const payload = readStdinJson();
 
-if (payload?.toolCall?.name && /consult/i.test(payload.toolCall.name)) {
+if (payload?.toolCall?.name && isConsultCall(payload.toolCall)) {
   const last = readJson(lastConsultPath());
   const fresh = last && Date.now() - last.ts < FRESH_MS;
   const ok = !payload.error && fresh && last.status === 'complete';

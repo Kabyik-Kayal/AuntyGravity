@@ -79,6 +79,41 @@ test('gate: denies mutating tools before consult, allows read-only and consult',
   assert.match(hook('gate.mjs', tool('run_command'), env).reason, /consult/);
 });
 
+test('gate: Antigravity call_mcp_tool wrapper is matched on exact server and tool', async () => {
+  const env = freshEnv();
+  const mcpCall = (ServerName, ToolName) => ({
+    toolCall: { id: 't', name: 'call_mcp_tool', args: { ServerName, ToolName } },
+    conversationId: 'c1',
+  });
+  assert.equal(hook('gate.mjs', mcpCall('auntygravity', 'consult'), env).decision, 'allow');
+  assert.equal(hook('gate.mjs', mcpCall('rea', 'consult'), env).decision, 'deny'); // other server, same tool name
+  assert.equal(hook('gate.mjs', mcpCall('auntygravity', 'other'), env).decision, 'deny');
+  assert.equal(hook('gate.mjs', { toolCall: { id: 't', name: 'call_mcp_tool', args: {} }, conversationId: 'c1' }, env).decision, 'deny');
+
+  await mcp(env, [init, call({ task: 'x' })]);
+  hook('record.mjs', mcpCall('rea', 'consult'), env); // must not unlock
+  assert.equal(hook('gate.mjs', tool('run_command'), env).decision, 'deny');
+  hook('record.mjs', mcpCall('auntygravity', 'consult'), env);
+  assert.equal(hook('gate.mjs', tool('run_command'), env).decision, 'allow');
+});
+
+test('gate: even after planning, edits to hooks, state and MCP config are denied', async () => {
+  const env = freshEnv();
+  await mcp(env, [init, call({ task: 'x' })]);
+  hook('record.mjs', tool('mcp_auntygravity_consult', 'c1'), env);
+  const withArgs = (name, args) => ({ toolCall: { id: 't', name, args }, conversationId: 'c1' });
+  assert.equal(hook('gate.mjs', withArgs('write_file', { TargetFile: 'poc-output.txt' }), env).decision, 'allow');
+  for (const args of [
+    { TargetFile: 'M:\\x\\poc\\workspace\\.agents\\hooks\\gate.mjs' },
+    { TargetFile: 'poc/shared/state.mjs' },
+    { CommandLine: 'del C:\\Users\\u\\.gemini\\config\\mcp_config.json' },
+    { Edits: [{ file: 'poc/workspace/.agents/hooks.json' }] },
+  ]) {
+    assert.equal(hook('gate.mjs', withArgs('edit_file', args), env).decision, 'deny', JSON.stringify(args));
+  }
+  assert.equal(hook('gate.mjs', withArgs('read_file', { AbsolutePath: 'poc/workspace/.agents/hooks.json' }), env).decision, 'allow');
+});
+
 test('gate: unreadable payload fails closed', () => {
   assert.equal(hook('gate.mjs', null, freshEnv(), 'not json').decision, 'deny');
 });

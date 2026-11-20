@@ -48,4 +48,19 @@ export function appendLog(file, line) {
   }
 }
 
-export const out = (obj) => process.stdout.write(JSON.stringify(obj));
+// Antigravity runs MCP tools through the native wrapper `call_mcp_tool` (observed in gate.log),
+// with the real target in args. Match the exact server and tool, not just the word "consult".
+export function isConsultCall(toolCall) {
+  const name = String(toolCall?.name ?? '');
+  if (name === 'call_mcp_tool') {
+    const a = toolCall?.args ?? {};
+    const pick = (...keys) => keys.map((k) => a[k]).find((v) => typeof v === 'string') ?? '';
+    return (
+      /^auntygravity$/i.test(pick('ServerName', 'serverName', 'server_name')) &&
+      /^consult$/i.test(pick('ToolName', 'toolName', 'tool_name'))
+    );
+  }
+  return /consult/i.test(name); // direct-name fallback, e.g. mcp_auntygravity_consult
+}
+
+export const out =(obj) => process.stdout.write(JSON.stringify(obj));

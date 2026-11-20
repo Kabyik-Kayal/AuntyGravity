@@ -4,7 +4,7 @@
       { "matcher": "*", "hooks": [{ "type": "command", "command": "node ./hooks/gate.mjs", "timeout": 10 }] }
     ],
     "PostToolUse": [
-      { "matcher": ".*consult.*", "hooks": [{ "type": "command", "command": "node ./hooks/record.mjs", "timeout": 10 }] }
+      { "matcher": "call_mcp_tool|.*consult.*", "hooks": [{ "type": "command", "command": "node ./hooks/record.mjs", "timeout": 10 }] }
     ],
     "PreInvocation": [
       { "type": "command", "command": "node ./hooks/inject-plan.mjs", "timeout": 10 }
