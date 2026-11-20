@@ -1,0 +1,16 @@
+{
+  "auntygravity-gate": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node ./hooks/gate.mjs", "timeout": 10 }] }
+    ],
+    "PostToolUse": [
+      { "matcher": ".*consult.*", "hooks": [{ "type": "command", "command": "node ./hooks/record.mjs", "timeout": 10 }] }
+    ],
+    "PreInvocation": [
+      { "type": "command", "command": "node ./hooks/inject-plan.mjs", "timeout": 10 }
+    ],
+    "Stop": [
+      { "type": "command", "command": "node ./hooks/stop-check.mjs", "timeout": 10 }
+    ]
+  }
+}
