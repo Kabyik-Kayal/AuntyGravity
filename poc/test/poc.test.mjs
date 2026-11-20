@@ -114,7 +114,8 @@ test('gate: even after planning, edits to hooks, state and MCP config are denied
   ]) {
     assert.equal(hook('gate.mjs', withArgs('edit_file', args), env).decision, 'deny', JSON.stringify(args));
   }
-  assert.equal(hook('gate.mjs', withArgs('read_file', { AbsolutePath: 'poc/workspace/.agents/hooks.json' }), env).decision, 'allow');
+  assert.equal(hook('gate.mjs', withArgs('read_file', { AbsolutePath: 'poc/workspace/.agents/hooks.json' }), env).decision, 'deny'); // internals are off-limits even for reading
+  assert.equal(hook('gate.mjs', withArgs('read_file', { Path: 'poc/workspace/AGENTS.md' }), env).decision, 'allow');
 });
 
 test('gate: an unknown or missing adapter state forces per-call user approval; stub, fake and chrome do not', () => {

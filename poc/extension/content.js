@@ -8,7 +8,7 @@
   const DEFAULTS = {
     allowedHosts: ['gemini.google.com'],
     sendConfirmMs: 10000,
-    generateTimeoutMs: 180000,
+    generateTimeoutMs: 150000, // Antigravity cancels MCP tool calls at 180s (measured), so finish earlier
     stableMs: 3000,
     pollMs: 500,
   };
@@ -42,7 +42,7 @@
       byRole('textbox', /prompt|message|ask gemini|enter a/i)[0] ||
       [...document.querySelectorAll('rich-textarea [contenteditable="true"], div.ql-editor[contenteditable="true"]')].find(visible),
     send: () => byRole('button', /^send( message)?$/i)[0],
-    stop: () => byRole('button', /stop (response|generating|answer)/i),
+    stop: () => byRole('button', /^stop\b|stop (response|generating|answer)/i),
     // Live page (verified from a screenshot): the picker shows the current model, e.g. "Neon High", and its menu lists
     // "Everyday help 4 Hydrogen", "Deeper analysis 4 Neon", "Code & complex work 4 Carbon" (item names carry the model).
     modelPicker: () =>
@@ -74,7 +74,8 @@
         const dt = el.getAttribute('data-test-id');
         chain.push(`${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${cls ? `.${cls}` : ''}${dt ? `[dtid=${dt}]` : ''}`);
       }
-      return `responsesMatched=${SELECTORS.responses().length} stopButtons=${SELECTORS.stop().length} answerChain=${JSON.stringify(chain)}`;
+      const lens = SELECTORS.responses().map((el) => (el.innerText || '').length); // lengths only, never text
+      return `responsesMatched=${lens.length} responseTextLengths=${JSON.stringify(lens)} stopButtons=${SELECTORS.stop().length} answerChain=${JSON.stringify(chain)}`;
     } catch (e) {
       return `diag failed: ${e.message}`;
     }

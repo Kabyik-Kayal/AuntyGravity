@@ -45,7 +45,7 @@ const DEFAULTS = {
   port: Number(process.env.AUNTY_BRIDGE_PORT || 9334),
   connectMs: 45000, // how long to wait for the extension to pick the job up
   launchAfterMs: 6000, // start the user's default Chrome if the extension has not shown up by then
-  totalMs: 270000, // hard cap including page load, ping and 180s generation; never resends
+  totalMs: 170000, // hard cap incl. page load; must stay under Antigravity's 180s MCP tool-call limit (measured); never resends
   holdMs: 20000, // long-poll hold
   launch: true,
 };

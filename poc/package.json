@@ -2,6 +2,6 @@
   "name": "auntygravity-poc",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test test/poc.test.mjs test/adapter.test.mjs test/bridge.test.mjs" },
+  "scripts": { "test": "node --test test/poc.test.mjs test/adapter.test.mjs test/bridge.test.mjs test/scope.test.mjs" },
   "devDependencies": { "playwright-core": "1.49.1" }
 }

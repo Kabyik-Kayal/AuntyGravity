@@ -18,8 +18,13 @@ export function buildPrompt({ intent = 'plan', task, context = [], constraints =
     ...list('Acceptance criteria', acceptance_criteria),
     'Reply with ONE fenced ```json block and nothing after it, with exactly these keys:',
     '{"summary": string, "recommendation": string,',
-    ' "plan": [{"step": string, "verification": [string]}],',
+    ' "plan": [{"step": string, "files": [string], "verification": [string]}],',
     ' "assumptions": [string], "open_questions": [string], "risks": [string]}',
+    '',
+    '"files" is REQUIRED on every step. It lists every path that step may create, modify or delete.',
+    'Use absolute paths when the context gives absolute paths, otherwise paths relative to the workspace root.',
+    'Use a trailing / to allow a whole directory. Use [] if the step changes no files.',
+    'Never list the workspace root itself. The agent is BLOCKED from changing any file not listed, so be complete.',
   ].join('\n');
   if (prompt.length > MAX_PROMPT_CHARS) {
     throw new ConsultError('INVALID_INPUT', `prompt exceeds ${MAX_PROMPT_CHARS} characters; send less context`);
@@ -49,12 +54,22 @@ export function parseResponse(text) {
     const planOk =
       Array.isArray(j?.plan) &&
       j.plan.length > 0 &&
-      j.plan.every((p) => typeof p?.step === 'string' && p.step.trim() && (p.verification === undefined || strArr(p.verification)));
+      j.plan.every(
+        (p) =>
+          typeof p?.step === 'string' &&
+          p.step.trim() &&
+          strArr(p.files) && // required: the executor is held to these files
+          (p.verification === undefined || strArr(p.verification)),
+      );
     if (!planOk) continue;
     return {
       summary: typeof j.summary === 'string' ? j.summary : '',
       recommendation: typeof j.recommendation === 'string' ? j.recommendation : '',
-      plan: j.plan.map((p) => ({ step: p.step.trim(), verification: p.verification ?? [] })),
+      plan: j.plan.map((p) => ({
+        step: p.step.trim(),
+        files: p.files.map((f) => f.trim()).filter(Boolean),
+        verification: p.verification ?? [],
+      })),
       assumptions: strArr(j.assumptions) ? j.assumptions : [],
       open_questions: strArr(j.open_questions) ? j.open_questions : [],
       risks: strArr(j.risks) ? j.risks : [],
@@ -72,7 +87,13 @@ export function renderResult(parsed, { modelUsed, intent }) {
     ...(parsed.summary ? ['', `Summary: ${parsed.summary}`] : []),
     ...(parsed.recommendation ? [`Recommendation: ${parsed.recommendation}`] : []),
     '',
-    ...parsed.plan.flatMap((p, i) => [`${i + 1}. ${p.step}`, ...p.verification.map((v) => `   Verify: ${v}`)]),
+    ...parsed.plan.flatMap((p, i) => [
+      `${i + 1}. ${p.step}`,
+      `   Files: ${p.files.length ? p.files.join(', ') : 'none'}`,
+      ...p.verification.map((v) => `   Verify: ${v}`),
+    ]),
+    '',
+    'Changing any file not listed above is blocked. If another file is needed, call consult for a revised plan.',
     ...bullets('Assumptions', parsed.assumptions),
     ...bullets('Open questions', parsed.open_questions),
     ...bullets('Risks', parsed.risks),

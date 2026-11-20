@@ -51,9 +51,12 @@ How it works: while a consult runs, the server listens on `127.0.0.1:9334`. The 
 
 Other modes: `AUNTY_ADAPTER=stub` (default, fixed plan) and `fake` (tests). Selectors for the Gemini page are in `extension/content.js` and are **unverified** against the live page.
 
+## Plan-content enforcement
+
+Every plan step lists the `files` it may change. The gate blocks `write_file`/`edit_file` outside them, and the Stop hook audits git changes made by shell commands. See `docs/architecture/enforcement-design.md`. If Flash is blocked by a wrong plan it re-consults for a revised one.
+
 ## Still unverified
 
-- Gemini selectors (model picker, prompt box, send/stop buttons, response container) against the live page.
-- That `force_ask` actually prompts you under the Turbo permission preset.
+- Argument names of `write_file`/`edit_file` in a live run (check the `argKeys` lines in `~/.auntygravity/state/gate.log`).
 - Whether hooks fire for sub-agents.
 - The Antigravity tool-call timeout versus Gemini generation time.

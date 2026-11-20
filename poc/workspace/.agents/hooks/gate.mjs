@@ -1,5 +1,6 @@
 // PreToolUse gate (fail-closed): only read-only tools and `consult` run until Gemini has planned.
 import { adapterPath, appendLog, isConsultCall, out, readJson, readStdinJson, sessionPath } from '../../../shared/state.mjs';
+import { allowedFromPlan, extractPaths, isAllowed, isFileMutatingTool } from '../../../shared/plan-scope.mjs';
 
 // Names are provisional: confirm against real transcripts (see state/tool-names.log). Override with AUNTY_READONLY_RE.
 const READONLY = new RegExp(
@@ -20,7 +21,11 @@ let reason;
 
 // The executor must not edit the enforcement itself (observed: Flash rewrote stop-check.mjs mid-run).
 // Best effort: scans string arguments of non-read-only tools. Pair with a permissions deny rule for real protection.
-const PROTECTED = /(\.agents[\\/]|poc[\\/]shared[\\/]|\.auntygravity|mcp_config\.json|[\\/]\.gemini[\\/]config)/i;
+const PROTECTED = /(\.agents[\\/]|poc[\\/](shared|mcp|extension|tools)[\\/]|\.auntygravity|mcp_config\.json|[\\/]\.gemini[\\/]config)/i;
+
+// The executor must not kill processes (observed: Flash ran Stop-Process on the consult MCP server mid-task).
+const KILLS = /(stop-process|taskkill|\bkill(all)?\b|\bpkill\b|stop-service|wmic\s+process|\.terminate\(\))/i;
+const killsProcess = (args) => KILLS.test(String(args?.CommandLine ?? args?.command ?? ''));
 const touchesProtected = (v) =>
   typeof v === 'string' ? PROTECTED.test(v) : v && typeof v === 'object' ? Object.values(v).some(touchesProtected) : false;
 
@@ -31,6 +36,9 @@ const touchesSecret = (v) =>
 if (touchesSecret(payload.toolCall.args)) {
   decision = 'deny';
   reason = 'Blocked by AuntyGravity: the bridge pairing token is secret.';
+} else if (killsProcess(payload.toolCall.args)) {
+  decision = 'deny';
+  reason = 'Blocked by AuntyGravity: stopping or killing processes is not permitted. If a tool such as consult misbehaves, report it to the user instead.';
 } else if (isConsultCall(payload.toolCall)) {
   // The user opted out of per-call approval for the chrome adapter (Turbo workflow). Note the trade-off: the consult
   // task and context go to Gemini webchat without a prompt. Fail-closed: an unknown or missing adapter state still asks.
@@ -41,13 +49,29 @@ if (touchesSecret(payload.toolCall.args)) {
     decision = 'force_ask';
     reason = 'AuntyGravity will send this consult (task and context) to the Gemini webchat. Google may retain or human-review it. Approve only if it contains nothing confidential.';
   }
-} else if (READONLY.test(name)) {
+} else if (READONLY.test(name) && !touchesProtected(payload.toolCall.args)) {
   decision = 'allow';
 } else if (touchesProtected(payload.toolCall.args)) {
   decision = 'deny';
   reason = 'Blocked by AuntyGravity: hook, state and MCP config files are protected and cannot be changed by the executor.';
 } else if (session?.planned) {
   decision = 'allow';
+  // Plan content: direct file-writing tools may only touch files the Gemini plan lists. Shell commands are
+  // audited at Stop instead. Fail-closed: a file tool whose target cannot be determined is denied.
+  if (isFileMutatingTool(name)) {
+    const base = payload.cwd || payload.workspacePaths?.[0] || process.cwd();
+    const targets = extractPaths(payload.toolCall.args);
+    const allowed = allowedFromPlan(session.plan, base);
+    const outside = targets.filter((t) => !isAllowed(t, allowed, base));
+    if (!targets.length || outside.length) {
+      decision = 'deny';
+      reason = !targets.length
+        ? 'Blocked by AuntyGravity: cannot tell which file this tool changes. Use a tool call whose target file is explicit, or call consult.'
+        : `Blocked by AuntyGravity: ${outside.length === 1 ? 'this file is' : 'these files are'} outside the Gemini plan: ${outside.join(', ')}. ` +
+          `The plan allows: ${allowed.length ? allowed.map((a) => a.abs + (a.dir ? '/' : '')).join(', ') : 'no files'}. ` +
+          'If the change is needed, call consult for a revised plan that includes it.';
+    }
+  }
 } else {
   decision = 'deny';
   reason =
@@ -55,7 +79,7 @@ if (touchesSecret(payload.toolCall.args)) {
     'Call the consult tool first (Gemini plans, you execute), then retry this action.';
 }
 
-// Tool name (and arg KEY names for the MCP wrapper, to verify the schema); never argument values.
-const keys = name === 'call_mcp_tool' ? ` argKeys=${Object.keys(payload.toolCall.args ?? {}).join(',')}` : '';
+// Tool name and argument KEY names (to verify tool schemas); never argument values.
+const keys = payload.toolCall.args && typeof payload.toolCall.args === 'object' ? ` argKeys=${Object.keys(payload.toolCall.args).join(',')}` : '';
 appendLog('gate.log', `${decision} ${name}${keys}`);
 out(reason ? { decision, reason } : { decision });

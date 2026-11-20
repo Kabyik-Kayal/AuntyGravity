@@ -62,6 +62,8 @@ function fail(code, reason) {
 }
 
 async function consult(args = {}) {
+  // Mark this call as in flight so a stale result from an earlier call is never mistaken for this one.
+  writeJson(lastConsultPath(), { status: 'pending', ts: Date.now() });
   const intent = args.intent ?? 'plan';
   const model = args.model ?? 'neon';
   const task = args.task;
@@ -84,7 +86,7 @@ async function consult(args = {}) {
       const parsed = parseResponse(raw);
       const text = renderResult(parsed, { modelUsed, intent });
       writeJson(lastConsultPath(), {
-        status: 'complete',
+        schema: 2, status: 'complete',
         id: `c_${Date.now().toString(36)}`,
         ts: Date.now(),
         model_used: modelUsed,
@@ -102,9 +104,10 @@ async function consult(args = {}) {
   const plan = [
     {
       step: 'Create the file poc-output.txt in the workspace root containing exactly: planned-by-stub',
+      files: ['poc-output.txt'],
       verification: ['Read poc-output.txt and confirm its contents match exactly'],
     },
-    { step: 'Report the verification result of each step to the user', verification: [] },
+    { step: 'Report the verification result of each step to the user', files: [], verification: [] },
   ];
   const text = [
     'PLAN FROM GEMINI (BINDING): execute in order; call consult for any deviation.',
@@ -116,7 +119,7 @@ async function consult(args = {}) {
   ].join('\n');
 
   writeJson(lastConsultPath(), {
-    status: 'complete',
+    schema: 2, status: 'complete',
     id: `c_${Date.now().toString(36)}`,
     ts: Date.now(),
     model_used: `stub-${model}`,
@@ -125,6 +128,19 @@ async function consult(args = {}) {
     text,
   });
   return { content: [{ type: 'text', text }] };
+}
+
+// If the client sent a progressToken, report progress every 15s. Some clients reset their tool-call timeout on
+// progress; whether Antigravity does is unverified (it cancels calls at 180s otherwise).
+async function withProgress(params, fn) {
+  const token = params?._meta?.progressToken;
+  let n = 0;
+  const timer = token === undefined ? null : setInterval(() => send({ method: 'notifications/progress', params: { progressToken: token, progress: ++n, message: 'waiting for Gemini' } }), Number(process.env.AUNTY_PROGRESS_MS || 15000));
+  try {
+    return await fn();
+  } finally {
+    if (timer) clearInterval(timer);
+  }
 }
 
 function handle(msg) {
@@ -148,7 +164,7 @@ function handle(msg) {
       if (params?.name !== 'consult') {
         return send({ id, error: { code: -32602, message: `Unknown tool: ${params?.name}` } });
       }
-      return consult(params.arguments).then(
+      return withProgress(params, () => consult(params.arguments)).then(
         (result) => send({ id, result }),
         (e) => send({ id, error: { code: -32603, message: String(e.message) } }),
       );

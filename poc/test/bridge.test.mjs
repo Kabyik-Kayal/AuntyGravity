@@ -114,7 +114,7 @@ const CHROME = [process.env.AUNTY_BROWSER_PATH, 'C:\\Program Files\\Google\\Chro
   .find((p) => fs.existsSync(p));
 const skip = CHROME ? false : 'no Chrome/Edge available';
 
-const ANSWER = 'Here:\n```json\n{"summary":"s","recommendation":"r","plan":[{"step":"do x","verification":["check x"]}]}\n```';
+const ANSWER = 'Here:\n```json\n{"summary":"s","recommendation":"r","plan":[{"step":"do x","files":["a.txt"],"verification":["check x"]}]}\n```';
 
 const FIXTURE = (mode) => `<!doctype html><title>fixture</title><body>
 ${mode === 'signedout' ? '<a href="#">Sign in</a>' : ''}

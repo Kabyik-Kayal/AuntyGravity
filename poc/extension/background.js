@@ -37,7 +37,7 @@ async function runJob(job) {
   let result;
   try {
     tab = await chrome.tabs.create({ url: GEMINI, active: true });
-    await waitComplete(tab.id, 30000);
+    await waitComplete(tab.id, 15000);
     const url = (await chrome.tabs.get(tab.id)).url ?? '';
     if (url.startsWith('https://accounts.google.com/')) {
       result = { ok: false, code: 'NEEDS_SIGN_IN', message: 'Signed out: sign in to Gemini in this Chrome profile, then retry.' };

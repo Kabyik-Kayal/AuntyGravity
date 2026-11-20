@@ -13,7 +13,7 @@ import { acquireLock } from '../mcp/adapter/lock.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const server = path.join(root, 'mcp', 'server.mjs');
-const GOOD = { summary: 's', recommendation: 'r', plan: [{ step: 'do x', verification: ['check x'] }], assumptions: ['a'], open_questions: [], risks: ['k'] };
+const GOOD = { summary: 's', recommendation: 'r', plan: [{ step: 'do x', files: ['a.txt'], verification: ['check x'] }], assumptions: ['a'], open_questions: [], risks: ['k'] };
 const fenced = (o) => `Sure.\n\`\`\`json\n${JSON.stringify(o)}\n\`\`\``;
 
 // ---------- prompt / parse ----------
@@ -27,11 +27,11 @@ test('parse: accepts a valid fenced plan, prefers the last block, normalizes fie
   const text = `\`\`\`json\n{"plan":[{"step":"old"}]}\n\`\`\`\nrevised:\n${fenced(GOOD)}`;
   const r = parseResponse(text);
   assert.equal(r.plan[0].step, 'do x');
-  assert.deepEqual(parseResponse(fenced({ plan: [{ step: ' a ' }] })).plan, [{ step: 'a', verification: [] }]);
+  assert.deepEqual(parseResponse(fenced({ plan: [{ step: ' a ', files: [' f ', ''] }] })).plan, [{ step: 'a', files: ['f'], verification: [] }]);
 });
 
 test('parse: rejects prose, empty plans and malformed steps as UNSTRUCTURED_RESPONSE', () => {
-  for (const bad of ['just words', fenced({ plan: [] }), fenced({ plan: [{ step: 5 }] }), fenced({ plan: [{ step: 'x', verification: 'no' }] }), '```json\n{oops\n```']) {
+  for (const bad of ['just words', fenced({ plan: [] }), fenced({ plan: [{ step: 'x' }] }), fenced({ plan: [{ step: 'x', files: 'a.txt' }] }), fenced({ plan: [{ step: 5 }] }), fenced({ plan: [{ step: 'x', verification: 'no' }] }), '```json\n{oops\n```']) {
     assert.throws(() => parseResponse(bad), (e) => e instanceof ConsultError && e.code === 'UNSTRUCTURED_RESPONSE', bad);
   }
 });
@@ -39,7 +39,8 @@ test('parse: rejects prose, empty plans and malformed steps as UNSTRUCTURED_RESP
 test('render: fixed binding header, numbered steps and verification lines', () => {
   const t = renderResult(parseResponse(fenced(GOOD)), { modelUsed: 'neon', intent: 'plan' });
   assert.match(t, /^PLAN FROM GEMINI \(BINDING\)/);
-  assert.match(t, /1\. do x\n {3}Verify: check x/);
+  assert.match(t, /1\. do x\n {3}Files: a\.txt\n {3}Verify: check x/);
+  assert.match(t, /not listed above is blocked/);
   assert.match(t, /Risks:\n- k/);
 });
 
@@ -93,6 +94,46 @@ test('server+adapter: every failure is a typed error recorded as failed, never a
     assert.equal(last.status, 'error');
     assert.equal(last.code, code);
   }
+});
+
+test('server: marks the call pending while Gemini works and reports progress when the client asks for it', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aunty-pg-'));
+  const env = { ...process.env, AUNTY_STATE_DIR: dir, AUNTY_ADAPTER: 'fake', AUNTY_FAKE_MODE: 'slow', AUNTY_PROGRESS_MS: '60' };
+  const msgs = await new Promise((resolve) => {
+    const p = spawn('node', [server], { env, stdio: ['pipe', 'pipe', 'inherit'] });
+    const got = [];
+    let buf = '';
+    let sawPending = false;
+    p.stdout.on('data', (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const m = JSON.parse(buf.slice(0, i));
+        buf = buf.slice(i + 1);
+        got.push(m);
+        if (m.id === 1) {
+          p.kill();
+          resolve({ got, sawPending });
+        }
+      }
+    });
+    p.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'consult', arguments: { task: 't' }, _meta: { progressToken: 'tok1' } } })}\n`);
+    setTimeout(() => {
+      try { sawPending = JSON.parse(fs.readFileSync(path.join(dir, 'last_consult.json'), 'utf8')).status === 'pending'; } catch { /* not yet */ }
+    }, 150);
+  });
+  assert.ok(msgs.sawPending, 'last_consult.json is pending while the adapter works');
+  const progress = msgs.got.filter((m) => m.method === 'notifications/progress');
+  assert.ok(progress.length >= 1);
+  assert.equal(progress[0].params.progressToken, 'tok1');
+  assert.equal(msgs.got.at(-1).result.isError, undefined);
+});
+
+test('server: no progress notifications unless the client sent a progressToken', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aunty-pg2-'));
+  const env = { ...process.env, AUNTY_STATE_DIR: dir, AUNTY_ADAPTER: 'fake', AUNTY_FAKE_MODE: 'slow', AUNTY_PROGRESS_MS: '60' };
+  const [res] = await rpc(env, [consultCall({ task: 't' })]);
+  assert.equal(res.result.isError, undefined);
 });
 
 test('server+adapter: invalid context shape is rejected before any adapter call', async () => {

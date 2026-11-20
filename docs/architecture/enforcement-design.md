@@ -110,3 +110,12 @@ Verified against real systems:
 - **Live consults:** Neon and Hydrogen both returned structured plans through the extension; the response was parsed, validated and rendered with the binding header. Model switching Neon to Hydrogen was verified.
 
 Not yet verified: a full Antigravity run with the `chrome` adapter, whether `force_ask` prompts under Turbo, sub-agent hook coverage, and Antigravity's MCP tool-call timeout versus answer time (a Neon answer can take minutes; the bridge cap is 270 s).
+
+## Plan-content enforcement (added 2026-11-20)
+
+Gemini now declares, per plan step, a required `files` list (exact files or directories ending in `/`). Plans without a valid `files` array on every step are rejected as `UNSTRUCTURED_RESPONSE`. Two layers hold the executor to it:
+
+1. **Gate (before the action):** after a plan exists, direct file-writing tools (`write_file`, `edit_file`, and similar names) may only touch listed files. Paths are resolved against the workspace (`cwd`), so `..` traversal, sibling-prefix names and `file://` URIs cannot widen access. Entries that cover the whole workspace or a parent, and globs, are ignored. A file tool whose target cannot be determined is denied. The denial text names the offending file and tells Flash to call consult for a revised plan, which is the escape hatch.
+2. **Stop audit (after the fact):** shell commands cannot be scoped in advance, so a git baseline of dirty files (path, size, mtime) is taken when the plan is recorded. At Stop, any file that is new or changed and not in the plan sends the agent back to revert it or re-consult, at most 3 rounds per plan. Requires a git repository; otherwise the audit is skipped.
+
+Limits: `run_command` itself is not blocked, so a command can still write outside the plan until the Stop audit catches it (the audit sees only changes to files git can see, so it misses ignored files and anything outside the workspace). Symlinks are not resolved. Plan quality is still Gemini's. The real argument names for `write_file` and `edit_file` are inferred from the key-name suffix (`...File`, `...Path`, `...Uri`) and are logged to `gate.log` as key names for verification. A live Antigravity run is needed to confirm them.
