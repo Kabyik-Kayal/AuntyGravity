@@ -1,7 +1,10 @@
 // PreToolUse gate (fail-closed): only read-only tools and `consult` run until Gemini has planned.
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { adapterPath, appendLog, isConsultCall, out, readJson, readStdinJson, sessionPath, spawnFlagPath } from '../../../shared/state.mjs';
-import { allowedFromPlan, extractPaths, isAllowed, isFileMutatingTool } from '../../../shared/plan-scope.mjs';
+import { allowedFromPlan, extractPaths, isAllowed, isFileMutatingTool, norm } from '../../../shared/plan-scope.mjs';
+import { inactive } from '../../../shared/optin.mjs';
 
 // Names are provisional: confirm against real transcripts (see state/tool-names.log). Override with AUNTY_READONLY_RE.
 const READONLY = new RegExp(
@@ -10,6 +13,10 @@ const READONLY = new RegExp(
 );
 
 const payload = readStdinJson();
+if (inactive(payload)) {
+  out({ decision: 'allow' });
+  process.exit(0);
+}
 if (!payload?.toolCall?.name) {
   out({ decision: 'deny', reason: 'AuntyGravity gate: unreadable hook payload, failing closed.' });
   process.exit(0);
@@ -32,8 +39,15 @@ const SPAWN = /^(swarm|swarm_wait|post_message|read_board)$|subagent|spawn|(star
 const spawnAllowed = () => fs.existsSync(spawnFlagPath());
 
 const killsProcess = (args) => KILLS.test(String(args?.CommandLine ?? args?.command ?? ''));
+// With a global install the enforcement lives in the AuntyGravity checkout, outside the project being worked on, so
+// the relative-name pattern above is not enough: also protect these directories by absolute path. The PoC's own
+// workspace files (poc/workspace/*.txt) stay writable; only workspace/.agents is protected.
+const INSTALL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const INSTALL_PROTECTED = ['shared', 'mcp', 'extension', 'tools', 'test', 'node_modules', 'workspace/.agents'].map((d) => norm(path.join(INSTALL_ROOT, d)));
+const slashes = (s) => (process.platform === 'win32' ? s.toLowerCase() : s).replace(/\\/g, '/');
+const inInstall = (s) => INSTALL_PROTECTED.some((p) => slashes(s).includes(p));
 const touchesProtected = (v) =>
-  typeof v === 'string' ? PROTECTED.test(v) : v && typeof v === 'object' ? Object.values(v).some(touchesProtected) : false;
+  typeof v === 'string' ? PROTECTED.test(v) || inInstall(v) : v && typeof v === 'object' ? Object.values(v).some(touchesProtected) : false;
 
 // The bridge pairing token must never reach the executor, even through read-only tools.
 const touchesSecret = (v) =>

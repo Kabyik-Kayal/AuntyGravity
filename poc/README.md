@@ -55,6 +55,20 @@ Other modes: `AUNTY_ADAPTER=stub` (default, fixed plan) and `fake` (tests). Sele
 
 Every plan step lists the `files` it may change. The gate blocks `write_file`/`edit_file` outside them, and the Stop hook audits git changes made by shell commands. See `docs/architecture/enforcement-design.md`. If Flash is blocked by a wrong plan it re-consults for a revised one.
 
+## Using it on your real projects (opt-in)
+
+The hooks currently live in `poc/workspace`, so only that workspace is gated. To gate other projects without gating everything:
+
+```bash
+node poc/tools/install.mjs install --dry-run   # preview what would go into ~/.gemini/config/hooks.json
+node poc/tools/install.mjs install             # writes it (backs up an existing file once)
+node poc/tools/enable.mjs enable <project-dir> # opt one project in
+node poc/tools/enable.mjs disable <project-dir>
+node poc/tools/install.mjs uninstall           # remove the global hooks again
+```
+
+The global hooks start with `--opt-in`, so in any project without `.agents/aunty.enabled` (checked up the directory tree) they do nothing: no gating, no state, no logging. `enable` also adds the executor rules to the project's `AGENTS.md` inside a marked block, and `disable` removes exactly that block. A project that already has its own `.agents/hooks.json` with the gate (like `poc/workspace`) makes the global hooks step aside so nothing runs twice. The checkout's `shared/`, `mcp/`, `extension/`, `tools/`, `test/` and `workspace/.agents` are protected by absolute path, so the executor cannot read or edit the enforcement from a different project.
+
 ## Still unverified
 
 - Argument names of `write_file`/`edit_file` in a live run (check the `argKeys` lines in `~/.auntygravity/state/gate.log`).

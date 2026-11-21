@@ -143,3 +143,9 @@ Antigravity cancels MCP tool calls at 180 s (measured: a call at 14:38:35 was cu
 - A collected plan goes through the same parsing, scope and baseline steps as a direct one.
 
 Verified live (probe with a 12 s wait): the first call returned PENDING at 21 s (the diagnostic showed a stop button present and empty response containers, i.e. still generating), and one collect call at 27 s returned the finished Neon plan, parsed and rendered. The prompt was sent exactly once. `tools/probe.mjs --wait N [--launch]` reproduces this. The server can shorten, never lengthen, the extension's wait (clamped to 5 to 125 s).
+
+## Global install, opt-in per project (added 2026-11-21)
+
+A global `~/.gemini/config/hooks.json` entry (`auntygravity-global`, written by `tools/install.mjs`) applies to every Antigravity conversation. To avoid gating projects that did not ask for it, every hook is started with `--opt-in` and exits as a no-op unless `.agents/aunty.enabled` exists in the workspace or an ancestor (`tools/enable.mjs`). Unknown workspaces stay ungated. A workspace-local hooks.json that already carries the gate wins, so hooks never run twice and injected system messages are not duplicated. Because the enforcement now lives outside the project being edited, the gate also protects the checkout's enforcement directories by absolute path for reads, writes and shell commands.
+
+Not verified live: that Antigravity applies `~/.gemini/config/hooks.json` as the docs describe, and the per-call cost of starting node four times per step in inactive projects.

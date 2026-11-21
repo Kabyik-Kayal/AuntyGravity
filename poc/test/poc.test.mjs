@@ -168,7 +168,7 @@ test('record: a tool error does not unlock even with a fresh complete result', a
 test('inject-plan: reminds once when unplanned, injects the plan once when planned', async () => {
   const env = freshEnv();
   const first = hook('inject-plan.mjs', { conversationId: 'c1' }, env);
-  assert.match(first.injectSteps[0].systemMessage.systemMessage, /call the consult tool/);
+  assert.match(first.injectSteps[0].systemMessage.systemMessage, /call `consult`[sS]*executor/);
   assert.deepEqual(hook('inject-plan.mjs', { conversationId: 'c1' }, env), {});
 
   await mcp(env, [init, call({ task: 'x' })]);

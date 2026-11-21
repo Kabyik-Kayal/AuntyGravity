@@ -3,9 +3,14 @@
 import { appendLog, out, readJson, readStdinJson, sessionPath, writeJson } from '../../../shared/state.mjs';
 import { allowedFromPlan, isAllowed } from '../../../shared/plan-scope.mjs';
 import { changedSince } from '../../../shared/audit.mjs';
+import { inactive } from '../../../shared/optin.mjs';
 
 const MAX_AUDIT_ROUNDS = 3;
 const payload = readStdinJson();
+if (inactive(payload)) {
+  out({ decision: 'allow' });
+  process.exit(0);
+}
 // Control fields only, never the user's prompt or other content.
 appendLog('stop.log', JSON.stringify({ executionNum: payload?.executionNum, continuationActive: payload?.continuationActive, terminationReason: payload?.terminationReason }));
 const file = sessionPath(payload?.conversationId);
