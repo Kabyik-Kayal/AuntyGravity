@@ -149,3 +149,14 @@ Verified live (probe with a 12 s wait): the first call returned PENDING at 21 s 
 A global `~/.gemini/config/hooks.json` entry (`auntygravity-global`, written by `tools/install.mjs`) applies to every Antigravity conversation. To avoid gating projects that did not ask for it, every hook is started with `--opt-in` and exits as a no-op unless `.agents/aunty.enabled` exists in the workspace or an ancestor (`tools/enable.mjs`). Unknown workspaces stay ungated. A workspace-local hooks.json that already carries the gate wins, so hooks never run twice and injected system messages are not duplicated. Because the enforcement now lives outside the project being edited, the gate also protects the checkout's enforcement directories by absolute path for reads, writes and shell commands.
 
 Not verified live: that Antigravity applies `~/.gemini/config/hooks.json` as the docs describe, and the per-call cost of starting node four times per step in inactive projects.
+
+## Distribution as an Antigravity plugin (added 2026-11-21)
+
+Modelled on how `mattpocock/skills` ships: a repo of skills, plus a one-time user-invoked setup skill that explores the project, shows its findings, asks, and only then writes (`setup-matt-pocock-skills`). Equivalent here:
+
+- **Repo root is the plugin root** (`plugin.json`, `mcp_config.json`, `skills/`). The server is declared with `${PLUGIN_ROOT}/runtime/mcp/server.mjs`; install is `agy plugin install <git url>`, the Marketplace, or a copy into `~/.gemini/config/plugins/`.
+- **`/setup-auntygravity`** (`skills/setup-auntygravity/SKILL.md`) is the only thing a user types. It drives `runtime/tools/aunty.mjs` (doctor, install, enable, token, smoke). Antigravity skills have no user-invoked-only flag, so the description says to use it ONLY on request.
+- **No per-project file edits.** The executor rules ride in the PreInvocation hook (`runtime/shared/protocol.mjs`), so a project gains one file, `.agents/aunty.enabled`, optionally hidden via `.git/info/exclude`.
+- **Hooks are not shipped inside the plugin.** The hooks doc scopes a plugin's hooks.json to the CLI only, and a plugin copy plus the global copy would run every hook twice. The setup skill installs the opt-in global hooks instead (documented for every surface). A test asserts the repo root has no `hooks.json`.
+- **The agent cannot undo its own enforcement.** In an enabled project the gate blocks running the CLI against the plugin's files, so `disable`, `uninstall` and enabling another project from inside an enabled project need the user's terminal or a folder that is not enabled.
+- **Unverified:** that `${PLUGIN_ROOT}` expands in MCP `args` as the docs summary says, how the app discovers a git-installed plugin, and that a skill's relative script path resolves for the agent. The Chrome extension still has to be loaded by hand (and a Chrome Web Store listing would remove that step).

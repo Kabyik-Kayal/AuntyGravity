@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "auntygravity": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/runtime/mcp/server.mjs"],
+      "env": { "AUNTY_ADAPTER": "chrome" }
+    }
+  }
+}

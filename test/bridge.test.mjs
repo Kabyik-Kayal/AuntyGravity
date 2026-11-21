@@ -7,8 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { ask as bridgeAsk, getToken } from '../mcp/adapter/chrome-bridge.mjs';
-import { parseResponse } from '../mcp/adapter/prompt.mjs';
+import { ask as bridgeAsk, getToken } from '../runtime/mcp/adapter/chrome-bridge.mjs';
+import { parseResponse } from '../runtime/mcp/adapter/prompt.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ext = path.join(root, 'extension');

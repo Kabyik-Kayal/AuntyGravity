@@ -1,8 +1,8 @@
 // PostToolUse on consult: mark this conversation as planned, waiting (answer pending) or failed,
 // from the server-written result.
-import { appendLog, isConsultCall, lastConsultPath, out, readJson, readStdinJson, sessionPath, writeJson } from '../../../shared/state.mjs';
-import { snapshot } from '../../../shared/audit.mjs';
-import { inactive } from '../../../shared/optin.mjs';
+import { appendLog, isConsultCall, lastConsultPath, out, readJson, readStdinJson, sessionPath, writeJson } from '../shared/state.mjs';
+import { snapshot } from '../shared/audit.mjs';
+import { inactive } from '../shared/optin.mjs';
 
 const FRESH_MS = 10 * 60 * 1000;
 const MAX_PENDING_ROUNDS = 4; // consecutive PENDING replies before giving up (each collect waits ~2 minutes)

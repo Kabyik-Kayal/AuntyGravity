@@ -2,9 +2,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { adapterPath, appendLog, isConsultCall, out, readJson, readStdinJson, sessionPath, spawnFlagPath } from '../../../shared/state.mjs';
-import { allowedFromPlan, extractPaths, isAllowed, isFileMutatingTool, norm } from '../../../shared/plan-scope.mjs';
-import { inactive } from '../../../shared/optin.mjs';
+import { adapterPath, appendLog, isConsultCall, out, readJson, readStdinJson, sessionPath, spawnFlagPath } from '../shared/state.mjs';
+import { allowedFromPlan, extractPaths, isAllowed, isFileMutatingTool, norm } from '../shared/plan-scope.mjs';
+import { inactive } from '../shared/optin.mjs';
 
 // Names are provisional: confirm against real transcripts (see state/tool-names.log). Override with AUNTY_READONLY_RE.
 const READONLY = new RegExp(
@@ -29,7 +29,7 @@ let reason;
 
 // The executor must not edit the enforcement itself (observed: Flash rewrote stop-check.mjs mid-run).
 // Best effort: scans string arguments of non-read-only tools. Pair with a permissions deny rule for real protection.
-const PROTECTED = /(\.agents[\\/]|poc[\\/](shared|mcp|extension|tools)[\\/]|\.auntygravity|mcp_config\.json|[\\/]\.gemini[\\/]config)/i;
+const PROTECTED = /(\.agents[\\/](hooks\.json|aunty\.enabled)|\.auntygravity|mcp_config\.json|[\\/]\.gemini[\\/]config)/i;
 
 // The executor must not kill processes (observed: Flash ran Stop-Process on the consult MCP server mid-task).
 const KILLS = /(stop-process|taskkill|\bkill(all)?\b|\bpkill\b|stop-service|wmic\s+process|\.terminate\(\))/i;
@@ -41,9 +41,9 @@ const spawnAllowed = () => fs.existsSync(spawnFlagPath());
 const killsProcess = (args) => KILLS.test(String(args?.CommandLine ?? args?.command ?? ''));
 // With a global install the enforcement lives in the AuntyGravity checkout, outside the project being worked on, so
 // the relative-name pattern above is not enough: also protect these directories by absolute path. The PoC's own
-// workspace files (poc/workspace/*.txt) stay writable; only workspace/.agents is protected.
-const INSTALL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const INSTALL_PROTECTED = ['shared', 'mcp', 'extension', 'tools', 'test', 'node_modules', 'workspace/.agents'].map((d) => norm(path.join(INSTALL_ROOT, d)));
+// dev workspace files (dev/workspace/*.txt) stay writable; only dev/workspace/.agents is protected.
+const INSTALL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const INSTALL_PROTECTED = ['runtime', 'extension', 'test', 'node_modules', 'dev/workspace/.agents'].map((d) => norm(path.join(INSTALL_ROOT, d)));
 const slashes = (s) => (process.platform === 'win32' ? s.toLowerCase() : s).replace(/\\/g, '/');
 const inInstall = (s) => INSTALL_PROTECTED.some((p) => slashes(s).includes(p));
 const touchesProtected = (v) =>

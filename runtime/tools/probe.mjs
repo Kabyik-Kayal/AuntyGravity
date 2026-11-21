@@ -1,5 +1,5 @@
 // Live probe: sends ONE synthetic, non-sensitive consult through the Bridge extension and prints the outcome.
-// Usage: node poc/tools/probe.mjs [neon|hydrogen] [--wait SECONDS] [--launch]   (--launch starts your default Chrome if the extension is not connected)
+// Usage: node runtime/tools/probe.mjs [neon|hydrogen] [--wait SECONDS] [--launch]   (--launch starts your default Chrome if the extension is not connected)
 // With --wait, the first call waits only that long for the answer, so a slow answer exercises PENDING and then
 // collect (each collect also waits that long, up to 6 tries). The prompt is sent exactly once.
 import { ask } from '../mcp/adapter/chrome-bridge.mjs';

@@ -31,7 +31,7 @@ const sameToken = (given, expected) => {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
 
-function findChrome() {
+export function findChrome() {
   return [
     process.env.AUNTY_BROWSER_PATH,
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -127,5 +127,36 @@ export async function ask({ prompt, model, collect }, opts = {}) {
     server.closeAllConnections?.();
     await new Promise((r) => server.close(r));
     release();
+  }
+}
+
+// Is the Bridge extension alive and paired? Listens like a consult would, answers valid polls with 204 and rejects the
+// rest, and reports what it saw. "silent" means no poll at all: Chrome closed, extension not loaded, or no token saved.
+export async function pingExtension({ port = DEFAULTS.port, waitMs = 12000 } = {}) {
+  const token = getToken();
+  let sawBadToken = false;
+  let resolveSeen;
+  const seen = new Promise((r) => (resolveSeen = r));
+  const server = http.createServer((req, res) => {
+    if (!sameToken(req.headers['x-aunty-token'], token)) {
+      sawBadToken = true;
+      res.writeHead(401).end();
+      return;
+    }
+    res.writeHead(204).end();
+    resolveSeen(true);
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', (e) => reject(new ConsultError(e.code === 'EADDRINUSE' ? 'BUSY' : 'BROWSER_UNAVAILABLE', `cannot listen on 127.0.0.1:${port} (${e.code})`)));
+    server.listen(port, '127.0.0.1', resolve);
+  });
+  let timer;
+  try {
+    const ok = await Promise.race([seen, new Promise((r) => (timer = setTimeout(() => r(false), waitMs)))]);
+    return { state: ok ? 'connected' : sawBadToken ? 'wrong-token' : 'silent' };
+  } finally {
+    clearTimeout(timer);
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
   }
 }

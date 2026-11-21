@@ -1,0 +1,16 @@
+{
+  "auntygravity-gate": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node ../../../runtime/hooks/gate.mjs", "timeout": 10 }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "call_mcp_tool|.*consult.*", "hooks": [{ "type": "command", "command": "node ../../../runtime/hooks/record.mjs", "timeout": 10 }] }
+    ],
+    "PreInvocation": [
+      { "type": "command", "command": "node ../../../runtime/hooks/inject-plan.mjs", "timeout": 10 }
+    ],
+    "Stop": [
+      { "type": "command", "command": "node ../../../runtime/hooks/stop-check.mjs", "timeout": 10 }
+    ]
+  }
+}

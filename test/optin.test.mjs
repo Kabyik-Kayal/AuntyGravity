@@ -7,12 +7,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isActive } from '../shared/optin.mjs';
-import { KEY, buildEntry, install, status, uninstall } from '../tools/install.mjs';
-import { disable, enable, status as enableStatus } from '../tools/enable.mjs';
+import { isActive } from '../runtime/shared/optin.mjs';
+import { KEY, buildEntry, install, status, uninstall } from '../runtime/tools/install.mjs';
+import { disable, enable, status as enableStatus } from '../runtime/tools/enable.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const hooksDir = path.join(root, 'workspace', '.agents', 'hooks');
+const hooksDir = path.join(root, 'runtime', 'hooks');
 const tmp = (p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
 
 function runHook(script, payload, { optIn = false, stateDir } = {}) {
@@ -132,7 +132,7 @@ test('uninstall: removes only our entry; deletes the file when nothing else is l
 });
 
 // ---------- enable / disable ----------
-test('enable: marker plus a marked rules block in AGENTS.md; idempotent; disable restores the original', () => {
+test('enable: creates only the marker and never touches AGENTS.md; idempotent; disable removes it', () => {
   const dir = tmp('aunty-en-');
   const agents = path.join(dir, 'AGENTS.md');
   fs.writeFileSync(agents, '# My project\n\nExisting rule.\n');
@@ -141,45 +141,67 @@ test('enable: marker plus a marked rules block in AGENTS.md; idempotent; disable
   assert.equal(r.enabled, true);
   assert.match(r.note ?? '', /not a git repo/);
   assert.ok(fs.existsSync(path.join(dir, '.agents', 'aunty.enabled')));
-  let text = fs.readFileSync(agents, 'utf8');
-  assert.match(text, /^# My project\n\nExisting rule\./);
-  assert.match(text, /auntygravity:begin[\s\S]*collect: true[\s\S]*auntygravity:end/);
+  assert.equal(fs.readFileSync(agents, 'utf8'), '# My project\n\nExisting rule.\n'); // untouched
 
-  enable(dir); // idempotent: still exactly one block
-  text = fs.readFileSync(agents, 'utf8');
-  assert.equal((text.match(/auntygravity:begin/g) || []).length, 1);
-  assert.deepEqual(enableStatus(dir), { root: path.resolve(dir), enabled: true, rulesInAgentsMd: true });
+  enable(dir); // idempotent
+  assert.deepEqual(fs.readdirSync(path.join(dir, '.agents')), ['aunty.enabled']);
+  assert.deepEqual(enableStatus(dir), { root: path.resolve(dir), enabled: true, gitRepo: false });
 
   disable(dir);
-  assert.ok(!fs.existsSync(path.join(dir, '.agents', 'aunty.enabled')));
-  assert.match(fs.readFileSync(agents, 'utf8'), /^# My project\n\nExisting rule\.\s*$/);
+  assert.ok(!fs.existsSync(path.join(dir, '.agents'))); // the folder we created is removed again
+  assert.equal(fs.readFileSync(agents, 'utf8'), '# My project\n\nExisting rule.\n');
   assert.equal(enableStatus(dir).enabled, false);
 });
 
-test('enable/disable: a project without AGENTS.md gets one and loses it again; bad directories are refused', () => {
+test('enable --exclude keeps the marker out of git and disable removes only our exclude line; a pre-existing .agents folder survives', () => {
   const dir = tmp('aunty-en2-');
-  fs.mkdirSync(path.join(dir, '.git'));
-  assert.equal(enable(dir).note, undefined); // git repo: no audit warning
-  assert.ok(fs.existsSync(path.join(dir, 'AGENTS.md')));
+  fs.mkdirSync(path.join(dir, '.git', 'info'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.git', 'info', 'exclude'), '*.log\n');
+  fs.mkdirSync(path.join(dir, '.agents'));
+  fs.writeFileSync(path.join(dir, '.agents', 'mine.md'), 'keep me');
+
+  const r = enable(dir, { exclude: true });
+  assert.equal(r.note, undefined); // git repo: no audit warning
+  assert.equal(r.excludedFromGit, true);
+  enable(dir, { exclude: true }); // idempotent: the line appears once
+  const ex = fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8');
+  assert.equal(ex.split('\n').filter((l) => l === '.agents/aunty.enabled').length, 1);
+  assert.match(ex, /^\*\.log/);
+
   disable(dir);
-  assert.ok(!fs.existsSync(path.join(dir, 'AGENTS.md'))); // it held only our block
+  assert.equal(fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8').includes('aunty.enabled'), false);
+  assert.match(fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8'), /^\*\.log/);
+  assert.equal(fs.readFileSync(path.join(dir, '.agents', 'mine.md'), 'utf8'), 'keep me'); // the project's own file stays
   assert.throws(() => enable(path.join(dir, 'missing')), /not a directory/);
 });
 
+test('disable also removes the AGENTS.md block that earlier versions wrote, and nothing else', () => {
+  const dir = tmp('aunty-en3-');
+  const agents = path.join(dir, 'AGENTS.md');
+  fs.writeFileSync(agents, '# Mine\n\n<!-- auntygravity:begin -->\nold rules\n<!-- auntygravity:end -->\n');
+  disable(dir);
+  assert.match(fs.readFileSync(agents, 'utf8'), /^# Mine\s*$/);
+
+  const only = tmp('aunty-en4-');
+  fs.writeFileSync(path.join(only, 'AGENTS.md'), '<!-- auntygravity:begin -->\nold\n<!-- auntygravity:end -->\n');
+  disable(only);
+  assert.ok(!fs.existsSync(path.join(only, 'AGENTS.md'))); // it held only our block
+});
+
 // ---------- protection of the checkout by absolute path ----------
-test('gate: the AuntyGravity checkout is protected by absolute path (reads and writes), the PoC workspace files are not', () => {
+test('gate: the AuntyGravity checkout is protected by absolute path (reads and writes), the dev workspace files are not', () => {
   const stateDir = tmp('aunty-pr-');
   fs.writeFileSync(path.join(stateDir, 'adapter.json'), '{"adapter":"chrome"}');
-  const target = path.join(root, 'workspace', 'notes.txt');
+  const target = path.join(root, 'dev', 'workspace', 'notes.txt');
   fs.writeFileSync(
     path.join(stateDir, 'last_consult.json'),
     JSON.stringify({ schema: 2, status: 'complete', id: 'c', ts: Date.now(), plan: [{ step: 's', files: [target], verification: [] }], text: 'P' }),
   );
-  const gate = (c) => runHook('gate.mjs', { conversationId: 'cv', cwd: path.join(root, 'workspace'), ...c }, { stateDir });
-  runHook('record.mjs', { conversationId: 'cv', cwd: path.join(root, 'workspace'), ...call('mcp_auntygravity_consult') }, { stateDir });
+  const gate = (c) => runHook('gate.mjs', { conversationId: 'cv', cwd: path.join(root, 'dev', 'workspace'), ...c }, { stateDir });
+  runHook('record.mjs', { conversationId: 'cv', cwd: path.join(root, 'dev', 'workspace'), ...call('mcp_auntygravity_consult') }, { stateDir });
 
   assert.equal(gate(call('write_file', { Path: target })).decision, 'allow');
-  for (const p of ['shared/state.mjs', 'mcp/server.mjs', 'tools/install.mjs', 'extension/content.js', 'workspace/.agents/hooks/gate.mjs', 'node_modules/x/y.js']) {
+  for (const p of ['runtime/shared/state.mjs', 'runtime/mcp/server.mjs', 'runtime/tools/install.mjs', 'runtime/hooks/gate.mjs', 'extension/content.js', 'dev/workspace/.agents/hooks.json', 'node_modules/x/y.js']) {
     const abs = path.join(root, p);
     assert.equal(gate(call('write_file', { Path: abs })).decision, 'deny', `write ${p}`);
     assert.equal(gate(call('read_file', { Path: abs })).decision, 'deny', `read ${p}`);

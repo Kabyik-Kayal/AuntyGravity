@@ -1,8 +1,8 @@
 // PreInvocation: inject the Gemini plan as binding instructions (once per plan, since systemMessage persists),
 // remind an unplanned session once, and halt the run if the last consult failed.
-import { out, readJson, readStdinJson, sessionPath, writeJson } from '../../../shared/state.mjs';
-import { inactive } from '../../../shared/optin.mjs';
-import { PROTOCOL } from '../../../shared/protocol.mjs';
+import { out, readJson, readStdinJson, sessionPath, writeJson } from '../shared/state.mjs';
+import { inactive } from '../shared/optin.mjs';
+import { PROTOCOL } from '../shared/protocol.mjs';
 
 const sys = (systemMessage) => ({ systemMessage: { systemMessage } });
 const payload = readStdinJson();

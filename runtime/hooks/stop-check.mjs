@@ -1,9 +1,9 @@
 // Stop: (1) audit that files changed since the plan are all inside the plan; (2) once per user turn, make the agent
 // report on the plan steps before finishing.
-import { appendLog, out, readJson, readStdinJson, sessionPath, writeJson } from '../../../shared/state.mjs';
-import { allowedFromPlan, isAllowed } from '../../../shared/plan-scope.mjs';
-import { changedSince } from '../../../shared/audit.mjs';
-import { inactive } from '../../../shared/optin.mjs';
+import { appendLog, out, readJson, readStdinJson, sessionPath, writeJson } from '../shared/state.mjs';
+import { allowedFromPlan, isAllowed } from '../shared/plan-scope.mjs';
+import { changedSince } from '../shared/audit.mjs';
+import { inactive } from '../shared/optin.mjs';
 
 const MAX_AUDIT_ROUNDS = 3;
 const payload = readStdinJson();

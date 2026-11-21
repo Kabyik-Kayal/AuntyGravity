@@ -1,13 +1,12 @@
 // Global install of the AuntyGravity hooks into Antigravity (~/.gemini/config/hooks.json).
 // The hooks are started with --opt-in, so they do nothing in a project until `enable.mjs enable <dir>` is run for it.
-// Usage: node poc/tools/install.mjs [install|uninstall|status] [--dry-run]
+// Usage: node runtime/tools/install.mjs [install|uninstall|status] [--dry-run]
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const pocRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const hooksDir = path.join(pocRoot, 'workspace', '.agents', 'hooks');
+const hooksDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'hooks');
 export const KEY = 'auntygravity-global';
 
 export const configDir = () => process.env.AUNTY_GEMINI_CONFIG_DIR || path.join(os.homedir(), '.gemini', 'config');

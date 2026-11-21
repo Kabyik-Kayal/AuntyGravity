@@ -6,10 +6,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { allowedFromPlan, extractPaths, isAllowed, isFileMutatingTool } from '../shared/plan-scope.mjs';
+import { allowedFromPlan, extractPaths, isAllowed, isFileMutatingTool } from '../runtime/shared/plan-scope.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const hooksDir = path.join(root, 'workspace', '.agents', 'hooks');
+const hooksDir = path.join(root, 'runtime', 'hooks');
 const tmp = (p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
 
 // ---------- scope matching ----------
@@ -114,7 +114,7 @@ test('gate: killing processes and reading enforcement internals are denied, befo
     }
   }
   assert.equal(none.run('gate.mjs', tc('run_command', { CommandLine: 'Get-ChildItem' })).decision, 'allow');
-  for (const p of ['poc/mcp/server.mjs', 'M:\\x\\poc\\shared\\state.mjs', 'C:\\Users\\u\\.auntygravity\\state\\last_consult.json', 'poc/workspace/.agents/hooks/gate.mjs']) {
+  for (const p of [path.join(root, 'runtime', 'mcp', 'server.mjs'), path.join(root, 'runtime', 'shared', 'state.mjs'), 'C:\\Users\\u\\.auntygravity\\state\\last_consult.json', path.join('proj', '.agents', 'hooks.json')]) {
     assert.equal(none.run('gate.mjs', tc('read_file', { Path: p })).decision, 'deny', p);
     assert.equal(noPlan(tc('read_file', { Path: p })).decision, 'deny', p);
   }

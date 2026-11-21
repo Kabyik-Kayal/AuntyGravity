@@ -8,8 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const hooksDir = path.join(root, 'workspace', '.agents', 'hooks');
-const server = path.join(root, 'mcp', 'server.mjs');
+const hooksDir = path.join(root, 'runtime', 'hooks');
+const server = path.join(root, 'runtime', 'mcp', 'server.mjs');
 
 // Default test state: stub adapter is live, so consult needs no approval prompt.
 const freshEnv = (adapter = 'stub') => {
@@ -107,15 +107,15 @@ test('gate: even after planning, edits to hooks, state and MCP config are denied
   const withArgs = (name, args) => ({ toolCall: { id: 't', name, args }, conversationId: 'c1' });
   assert.equal(hook('gate.mjs', withArgs('write_file', { TargetFile: 'poc-output.txt' }), env).decision, 'allow');
   for (const args of [
-    { TargetFile: 'M:\\x\\poc\\workspace\\.agents\\hooks\\gate.mjs' },
-    { TargetFile: 'poc/shared/state.mjs' },
+    { TargetFile: path.join(root, 'runtime', 'hooks', 'gate.mjs') },
+    { TargetFile: path.join(root, 'runtime', 'shared', 'state.mjs') },
     { CommandLine: 'del C:\\Users\\u\\.gemini\\config\\mcp_config.json' },
-    { Edits: [{ file: 'poc/workspace/.agents/hooks.json' }] },
+    { Edits: [{ file: path.join('proj', '.agents', 'hooks.json') }] },
   ]) {
     assert.equal(hook('gate.mjs', withArgs('edit_file', args), env).decision, 'deny', JSON.stringify(args));
   }
-  assert.equal(hook('gate.mjs', withArgs('read_file', { AbsolutePath: 'poc/workspace/.agents/hooks.json' }), env).decision, 'deny'); // internals are off-limits even for reading
-  assert.equal(hook('gate.mjs', withArgs('read_file', { Path: 'poc/workspace/AGENTS.md' }), env).decision, 'allow');
+  assert.equal(hook('gate.mjs', withArgs('read_file', { AbsolutePath: path.join('proj', '.agents', 'hooks.json') }), env).decision, 'deny'); // internals are off-limits even for reading
+  assert.equal(hook('gate.mjs', withArgs('read_file', { Path: 'proj/AGENTS.md' }), env).decision, 'allow');
 });
 
 test('gate: an unknown or missing adapter state forces per-call user approval; stub, fake and chrome do not', () => {
@@ -168,7 +168,7 @@ test('record: a tool error does not unlock even with a fresh complete result', a
 test('inject-plan: reminds once when unplanned, injects the plan once when planned', async () => {
   const env = freshEnv();
   const first = hook('inject-plan.mjs', { conversationId: 'c1' }, env);
-  assert.match(first.injectSteps[0].systemMessage.systemMessage, /call `consult`[sS]*executor/);
+  assert.match(first.injectSteps[0].systemMessage.systemMessage, /call `consult`[\s\S]*State-changing tools are blocked/);
   assert.deepEqual(hook('inject-plan.mjs', { conversationId: 'c1' }, env), {});
 
   await mcp(env, [init, call({ task: 'x' })]);

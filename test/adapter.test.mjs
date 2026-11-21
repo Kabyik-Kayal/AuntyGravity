@@ -7,12 +7,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ConsultError } from '../mcp/adapter/errors.mjs';
-import { buildPrompt, parseResponse, renderResult, MAX_PROMPT_CHARS } from '../mcp/adapter/prompt.mjs';
-import { acquireLock } from '../mcp/adapter/lock.mjs';
+import { ConsultError } from '../runtime/mcp/adapter/errors.mjs';
+import { buildPrompt, parseResponse, renderResult, MAX_PROMPT_CHARS } from '../runtime/mcp/adapter/prompt.mjs';
+import { acquireLock } from '../runtime/mcp/adapter/lock.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const server = path.join(root, 'mcp', 'server.mjs');
+const server = path.join(root, 'runtime', 'mcp', 'server.mjs');
 const GOOD = { summary: 's', recommendation: 'r', plan: [{ step: 'do x', files: ['a.txt'], verification: ['check x'] }], assumptions: ['a'], open_questions: [], risks: ['k'] };
 const fenced = (o) => `Sure.\n\`\`\`json\n${JSON.stringify(o)}\n\`\`\``;
 

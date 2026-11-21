@@ -1,0 +1,11 @@
+{
+  "name": "auntygravity",
+  "displayName": "AuntyGravity",
+  "description": "Lets a stronger Gemini webchat model (Neon or Hydrogen) plan and decide while Antigravity's own model only executes, enforced by hooks. Run /setup-auntygravity to turn it on for a project.",
+  "version": "0.1.0",
+  "suggestedPrompts": [
+    "/setup-auntygravity",
+    "Set up AuntyGravity in this project",
+    "Check that my AuntyGravity setup works"
+  ]
+}
