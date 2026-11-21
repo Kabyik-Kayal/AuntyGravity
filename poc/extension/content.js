@@ -224,7 +224,7 @@
   }
 
   // Fetch the answer to a prompt that was already sent in this tab (never sends anything).
-  async function collect(_req, overrides = {}) {
+  async function collect(_req, overrides = {}) { // eslint-disable-line
     const cfg = { ...DEFAULTS, ...overrides };
     try {
       guard(cfg);
@@ -241,8 +241,8 @@
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       if (msg?.type === 'ping') reply({ ok: true });
-      else if (msg?.type === 'ask') ask(msg.req).then(reply);
-      else if (msg?.type === 'collect') collect(msg.req).then(reply);
+      else if (msg?.type === 'ask') ask(msg.req, msg.cfg).then(reply);
+      else if (msg?.type === 'collect') collect(msg.req, msg.cfg).then(reply);
       else return false;
       return true; // async reply
     });

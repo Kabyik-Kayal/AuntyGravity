@@ -54,7 +54,7 @@ export async function ask({ prompt, model, collect }, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
   const release = acquireLock();
   const token = getToken();
-  const job = { id: crypto.randomUUID(), req: { prompt, model, collect: collect === true } };
+  const job = { id: crypto.randomUUID(), req: { prompt, model, collect: collect === true, ...(Number.isFinite(opts.waitMs) ? { waitMs: opts.waitMs } : {}) } };
   let taken = false;
   let finish;
   const done = new Promise((resolve) => (finish = resolve));

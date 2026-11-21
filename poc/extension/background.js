@@ -30,7 +30,7 @@ async function runCollect(req) {
   }
   let result;
   try {
-    result = await chrome.tabs.sendMessage(tab.id, { type: 'collect', req: { model: req.model } });
+    result = await chrome.tabs.sendMessage(tab.id, { type: 'collect', req: { model: req.model }, cfg: waitCfg(req) });
   } catch (e) {
     result = { ok: false, code: 'BROWSER_UNAVAILABLE', message: String(e.message || e).split('\n')[0] };
   }
@@ -40,6 +40,9 @@ async function runCollect(req) {
   }
   return result ?? { ok: false, code: 'UI_CHANGED', message: 'No result from the Gemini tab.' };
 }
+
+// The server may shorten the wait for the answer (used to exercise PENDING/collect); never lengthen it past the default.
+const waitCfg = (req) => (Number.isFinite(req?.waitMs) ? { generateTimeoutMs: Math.min(125000, Math.max(5000, req.waitMs)) } : {});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const getToken = async () => (await chrome.storage.local.get('token')).token;
@@ -90,7 +93,7 @@ async function runJob(job) {
         if (!ready) await sleep(500);
       }
       result = ready
-        ? await chrome.tabs.sendMessage(tab.id, { type: 'ask', req: { prompt: req.prompt, model: req.model } })
+        ? await chrome.tabs.sendMessage(tab.id, { type: 'ask', req: { prompt: req.prompt, model: req.model }, cfg: waitCfg(req) })
         : { ok: false, code: 'UI_CHANGED', message: 'Gemini page did not load the bridge content script.' };
     }
   } catch (e) {

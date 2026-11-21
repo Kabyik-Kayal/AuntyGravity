@@ -279,3 +279,14 @@ test('content driver: a send that never starts reports UI_CHANGED with send-butt
     assert.match(r.message, /diag send=found[\s\S]*editorLen=1/);
   });
 });
+
+test('bridge: waitMs reaches the extension only when given', async () => {
+  let token = isolate();
+  let ext1 = fakeExtension(token, () => ({ ok: true, text: 'A' }));
+  await bridgeAsk({ prompt: 'p', model: 'neon' }, { ...opts, waitMs: 12000 });
+  assert.equal((await ext1).req.waitMs, 12000);
+  token = isolate();
+  ext1 = fakeExtension(token, () => ({ ok: true, text: 'A' }));
+  await bridgeAsk({ prompt: 'p', model: 'neon' }, opts);
+  assert.equal((await ext1).req.waitMs, undefined);
+});

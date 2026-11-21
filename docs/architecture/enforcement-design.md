@@ -142,4 +142,4 @@ Antigravity cancels MCP tool calls at 180 s (measured: a call at 14:38:35 was cu
 - Hooks: a PENDING reply puts the session in a `waiting` state. It is not failed, so the run continues, but state-changing tools stay blocked with a message that says to collect. The Stop hook sends the agent back to collect (at most 3 times). After 4 consecutive PENDING replies the session fails with a clear reason.
 - A collected plan goes through the same parsing, scope and baseline steps as a direct one.
 
-Unverified live: the `collect` path against the real Gemini page, and that the diagnostics in a PENDING reply identify a selector problem rather than slowness.
+Verified live (probe with a 12 s wait): the first call returned PENDING at 21 s (the diagnostic showed a stop button present and empty response containers, i.e. still generating), and one collect call at 27 s returned the finished Neon plan, parsed and rendered. The prompt was sent exactly once. `tools/probe.mjs --wait N [--launch]` reproduces this. The server can shorten, never lengthen, the extension's wait (clamped to 5 to 125 s).
