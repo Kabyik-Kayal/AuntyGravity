@@ -306,3 +306,10 @@ test('pending: a stale or old-schema waiting marker does not count as pending', 
   assert.equal(w.session().waiting, false);
   assert.equal(w.session().failed, true);
 });
+
+test('consult is recognised under the plugin-prefixed server name auntygravity_auntygravity', () => {
+  const { run } = planned(['a.txt'], tmp('aunty-pfx-'));
+  const call = (ServerName, ToolName = 'consult') => ({ toolCall: { id: 't', name: 'call_mcp_tool', args: { ServerName, ToolName } } });
+  assert.equal(run('gate.mjs', call('auntygravity_auntygravity')).decision, 'allow');
+  assert.equal(run('gate.mjs', call('auntygravity')).decision, 'allow');
+});

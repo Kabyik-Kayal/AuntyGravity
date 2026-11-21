@@ -61,7 +61,7 @@ export function isConsultCall(toolCall) {
     const a = toolCall?.args ?? {};
     const pick = (...keys) => keys.map((k) => a[k]).find((v) => typeof v === 'string') ?? '';
     return (
-      /^auntygravity$/i.test(pick('ServerName', 'serverName', 'server_name')) &&
+      /^(auntygravity_)?auntygravity$/i.test(pick('ServerName', 'serverName', 'server_name')) &&
       /^consult$/i.test(pick('ToolName', 'toolName', 'tool_name'))
     );
   }
