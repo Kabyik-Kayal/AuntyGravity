@@ -2,6 +2,16 @@
   "name": "auntygravity-poc",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test test/poc.test.mjs test/adapter.test.mjs test/bridge.test.mjs test/scope.test.mjs test/optin.test.mjs test/plugin.test.mjs" },
-  "devDependencies": { "playwright-core": "1.49.1" }
+  "scripts": {
+    "test": "node --test test/poc.test.mjs test/adapter.test.mjs test/bridge.test.mjs test/scope.test.mjs test/optin.test.mjs test/plugin.test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.49.1"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kabyik-Kayal/AuntyGravity.git"
+  },
+  "description": "Let a stronger Gemini webchat model plan while Antigravity executes (Antigravity plugin)"
 }
